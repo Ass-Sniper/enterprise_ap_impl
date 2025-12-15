@@ -20,23 +20,23 @@ if ! ipset list "$IPSET_NAME" >/dev/null 2>&1; then
 	log "created ipset $IPSET_NAME"
 fi
 
-# No DHCP lease file
 [ -f "$LEASE_FILE" ] || {
 	log "no dhcp lease file"
 	exit 0
 }
 
-# Iterate active DHCP leases
-awk '{print tolower($2)}' "$LEASE_FILE" | while read -r MAC; do
+# Read leases WITHOUT pipe (avoid subshell)
+while read -r _ MAC _; do
+	MAC="$(echo "$MAC" | tr 'A-F' 'a-f')"
 	[ -z "$MAC" ] && continue
+
 	SCANNED=$((SCANNED + 1))
 
 	RESP="$(curl -s --max-time 2 "$CTRL_URL/portal/status/$MAC")"
-	AUTH="$(echo "$RESP" | jsonfilter -e '@.authorized' 2>/dev/null)"
-	TTL="$(echo "$RESP" | jsonfilter -e '@.ttl' 2>/dev/null)"
+	AUTH="$(echo "$RESP" | jq -r '.authorized // empty')"
+	TTL="$(echo "$RESP" | jq -r '.ttl // 0')"
 
-	# Not authorized or invalid TTL
-	if [ "$AUTH" != "true" ] || [ -z "$TTL" ] || [ "$TTL" -le 0 ]; then
+	if [ "$AUTH" != "true" ] || [ "$TTL" -le 0 ]; then
 		if ipset test "$IPSET_NAME" "$MAC" 2>/dev/null; then
 			ipset del "$IPSET_NAME" "$MAC"
 			REMOVED=$((REMOVED + 1))
@@ -44,10 +44,10 @@ awk '{print tolower($2)}' "$LEASE_FILE" | while read -r MAC; do
 		continue
 	fi
 
-	# Authorized
 	ALLOWED=$((ALLOWED + 1))
 	ipset -exist add "$IPSET_NAME" "$MAC" timeout "$TTL"
 	REFRESHED=$((REFRESHED + 1))
-done
+
+done < "$LEASE_FILE"
 
 log "scanned=$SCANNED allowed=$ALLOWED refreshed=$REFRESHED removed=$REMOVED"
