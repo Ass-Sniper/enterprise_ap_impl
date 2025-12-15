@@ -1,0 +1,24 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: cp-redis
+    restart: unless-stopped
+
+  ap-controller:
+    build: ./ap-controller
+    container_name: ap-controller
+    ports:
+      - "8443:8443"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - redis
+
+  captive-portal:
+    build: ./captive-portal/portal-server
+    container_name: captive-portal
+    ports:
+      - "8080:8080"
+    depends_on:
+      - ap-controller
