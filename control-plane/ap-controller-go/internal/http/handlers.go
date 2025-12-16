@@ -12,6 +12,8 @@ import (
 	"ap-controller-go/internal/roles"
 	"ap-controller-go/internal/store"
 
+	_ "ap-controller-go/docs/openapi"
+
 	"github.com/go-chi/chi/v5"
 )
 
@@ -55,12 +57,27 @@ func (s *Server) buildSessionResp(sess *store.SessionV2, ttl int) map[string]any
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 
+	// Swagger MUST be registered first or anywhere on the SAME router
+	registerSwagger(r)
+
+	// @Summary 服务根状态
+	// @Description 返回服务运行状态
+	// @Tags System
+	// @Produce json
+	// @Success 200 {object} map[string]interface{} "status=ok"
+	// @Router / [get]
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{
 			"status": "ok",
 		})
 	})
 
+	// @Summary 健康检查
+	// @Description 检查与 Redis 的连接状态
+	// @Tags System
+	// @Produce json
+	// @Success 200 {object} map[string]interface{} "status、redis_ping"
+	// @Router /healthz [get]
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		err := s.st.Ping(ctx)
@@ -77,11 +94,27 @@ func (s *Server) Router() http.Handler {
 	r.Get("/portal/status/{mac}", s.portalStatus)
 	r.Post("/portal/batch_status", s.portalBatchStatus)
 
+	// @Summary 获取策略运行时信息
+	// @Description 返回当前策略运行时配置快照
+	// @Tags Policy
+	// @Produce json
+	// @Success 200 {object} map[string]interface{}
+	// @Router /api/v1/policy/runtime [get]
 	r.Get("/api/v1/policy/runtime", policy.RuntimeHandler(s.cfg))
-
 	return r
 }
 
+// portalLogin handles portal login.
+// @Summary 门户登录授权
+// @Description 根据 MAC / SSID / Auth 等信息创建或更新会话
+// @Tags Portal
+// @Accept json
+// @Produce json
+// @Param body body LoginReq true "登录请求体"
+// @Success 200 {object} map[string]interface{} "authorized=true 时返回会话信息"
+// @Failure 400 {object} ErrorResponse "bad_json"
+// @Failure 422 {object} ErrorResponse "mac_required"
+// @Router /portal/login [post]
 func (s *Server) portalLogin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -157,6 +190,17 @@ func (s *Server) portalLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.buildSessionResp(sess2, ttl2))
 }
 
+// portalHeartbeat refreshes session TTL.
+// @Summary 门户心跳
+// @Description 刷新会话 TTL，返回最新会话信息
+// @Tags Portal
+// @Accept json
+// @Produce json
+// @Param body body HeartbeatReq true "心跳请求体"
+// @Success 200 {object} map[string]interface{} "会话信息"
+// @Failure 400 {object} ErrorResponse "bad_json"
+// @Failure 422 {object} ErrorResponse "mac_required"
+// @Router /portal/heartbeat [post]
 func (s *Server) portalHeartbeat(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -215,6 +259,16 @@ func (s *Server) portalHeartbeat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.buildSessionResp(sess2, ttl2))
 }
 
+// @Summary 门户登出
+// @Description 删除指定 MAC 的会话
+// @Tags Portal
+// @Accept json
+// @Produce json
+// @Param body body LogoutReq true "登出请求体"
+// @Success 200 {object} map[string]interface{} "authorized=false"
+// @Failure 400 {object} ErrorResponse "bad_json"
+// @Failure 422 {object} ErrorResponse "mac_required"
+// @Router /portal/logout [post]
 func (s *Server) portalLogout(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -241,6 +295,13 @@ func (s *Server) portalLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"authorized": false})
 }
 
+// @Summary 门户状态查询
+// @Description 查询单个 MAC 的授权状态
+// @Tags Portal
+// @Produce json
+// @Param mac path string true "客户端 MAC 地址" example(aa:bb:cc:dd:ee:ff)
+// @Success 200 {object} map[string]interface{} "会话状态"
+// @Router /portal/status/{mac} [get]
 func (s *Server) portalStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	mac := macNorm(chi.URLParam(r, "mac"))
@@ -256,6 +317,15 @@ func (s *Server) portalStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, s.buildSessionResp(sess, ttl))
 }
 
+// @Summary 批量门户状态查询
+// @Description 批量查询多个 MAC 的会话状态
+// @Tags Portal
+// @Accept json
+// @Produce json
+// @Param body body BatchReq true "批量状态请求体"
+// @Success 200 {object} map[string]interface{} "results 数组"
+// @Failure 400 {object} ErrorResponse "bad_json"
+// @Router /portal/batch_status [post]
 func (s *Server) portalBatchStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 

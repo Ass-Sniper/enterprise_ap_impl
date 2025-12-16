@@ -14,31 +14,45 @@ type Server struct {
 	policyVersion int
 }
 
+// LoginReq portal login request
 type LoginReq struct {
-	MAC     string `json:"mac"`
-	SSID    string `json:"ssid,omitempty"`
-	Auth    string `json:"auth,omitempty"`
-	APID    string `json:"ap_id,omitempty"`
-	RadioID string `json:"radio_id,omitempty"`
-	IP      string `json:"ip,omitempty"`
-	Source  string `json:"source,omitempty"` // dhcp|arp|fdb|portal|sync
+	MAC     string `json:"mac" example:"aa:bb:cc:dd:ee:ff"`
+	SSID    string `json:"ssid,omitempty" example:"GuestWiFi"`
+	Auth    string `json:"auth,omitempty" example:"portal"`
+	APID    string `json:"ap_id,omitempty" example:"ap-123"`
+	RadioID string `json:"radio_id,omitempty" example:"radio-1"`
+	IP      string `json:"ip,omitempty" example:"192.168.1.23"`
+	Source  string `json:"source,omitempty" example:"portal"`
 }
 
+// HeartbeatReq portal heartbeat request
 type HeartbeatReq struct {
-	MAC     string `json:"mac"`
-	Source  string `json:"source,omitempty"`
-	APID    string `json:"ap_id,omitempty"`
-	SSID    string `json:"ssid,omitempty"`
-	RadioID string `json:"radio_id,omitempty"`
+	MAC     string `json:"mac" example:"aa:bb:cc:dd:ee:ff"`
+	Source  string `json:"source,omitempty" example:"portal"`
+	APID    string `json:"ap_id,omitempty" example:"ap-123"`
+	SSID    string `json:"ssid,omitempty" example:"GuestWiFi"`
+	RadioID string `json:"radio_id,omitempty" example:"radio-1"`
 }
 
+// LogoutReq portal logout request
 type LogoutReq struct {
-	MAC string `json:"mac"`
+	MAC    string `json:"mac" example:"aa:bb:cc:dd:ee:ff"`
+	Source string `json:"source,omitempty" example:"portal"`
 }
 
+// BatchEntry single batch query entry
+type BatchEntry struct {
+	MAC    string `json:"mac" example:"aa:bb:cc:dd:ee:ff"`
+	Source string `json:"source,omitempty" example:"portal"`
+}
+
+// BatchReq batch portal status request
 type BatchReq struct {
-	Entries []struct {
-		MAC    string `json:"mac"`
-		Source string `json:"source,omitempty"`
-	} `json:"entries"`
+	Entries []BatchEntry `json:"entries"`
+}
+
+// ErrorResponse standard error response
+type ErrorResponse struct {
+	Code    string `json:"code" example:"bad_request"`
+	Message string `json:"message" example:"invalid mac"`
 }
