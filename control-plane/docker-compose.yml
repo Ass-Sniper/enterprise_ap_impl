@@ -1,31 +1,34 @@
+
+
 services:
   redis:
     image: redis:7-alpine
     container_name: cp-redis
     restart: unless-stopped
+    ports:
+      - "6379:6379"
 
   ap-controller:
-    build: ./ap-controller
+    image: ap-controller-go:latest
     container_name: ap-controller
+    restart: unless-stopped
+    depends_on:
+      - redis
     ports:
       - "8443:8443"
     volumes:
+      # 🔑 统一使用 control-plane/config/controller.yaml
       - ./config/controller.yaml:/app/config/controller.yaml:ro
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-    depends_on:
-      - redis
+      - AUDIT_SECRET=${AUDIT_SECRET:-dev-secret}
 
   captive-portal:
     build: ./captive-portal/portal-server
     container_name: captive-portal
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./captive-portal/portal-server/app/templates:/app/portal-server/app/templates:ro
-      - ./captive-portal/portal-server/app/static:/app/portal-server/app/static:ro
-    environment:
-      - CONTROLLER_URL=http://ap-controller:8443
+    restart: unless-stopped
     depends_on:
       - ap-controller
+    ports:
+      - "8080:8080"

@@ -2,81 +2,146 @@
 # Controller global config
 # =========================
 controller:
+  # Unique controller ID (for HA / multi-controller deployments)
+  id: apc-001
+
+  # Physical or logical site identifier
+  site: office-shanghai
+
+  # Product name & version (used in audit logs and API responses)
   name: ap-controller
   version: 0.1.0
+
+  # HTTP bind address for control-plane APIs
   bind:
     host: 0.0.0.0
     port: 8443
 
+  # Audit logging & integrity protection
+  audit:
+    enabled: true
+
+    # Audit verbosity:
+    # - session  : login / logout / heartbeat
+    # - security : violations / bypass / errors
+    # - all      : everything
+    level: session
+
+    # HMAC secret reference (do NOT store secrets in plain YAML)
+    secret_ref: env:AUDIT_SECRET
+    algo: hmac-sha256
+
+
+# =========================
+# Redis session backend
+# =========================
 redis:
   host: redis
   port: 6379
   db: 0
+
+  # Key prefix for all session entries
   prefix: "session:"
 
-session:
-  default_ttl: 3600
-  default_role: guest
-  ttl:
-    login: 3600        # portal login
-    heartbeat: 1800    # client heartbeat
-    dhcp: 600          # dhcp lease observed
-    arp: 300           # arp seen
-    fdb: 120           # bridge fdb
+  # TLS and authentication (recommended for production)
+  tls: false
+  auth_ref: env:REDIS_PASSWORD
 
-heartbeat:
-  ttl_policy:
-    dhcp: 3600
-    arp: 1800
-    fdb: 600
-    unknown: 600
 
-logging:
-  level: INFO
-
-audit:
-  enabled: true
-  secret: "CHANGE_ME_TO_A_LONG_RANDOM_STRING"
-  algo: "hmac-sha256"
-
+# =========================
+# Logical roles
+# =========================
+# Role represents *identity*, not network behavior
 roles:
   guest:
-    ttl:
-      default: 3600
-      heartbeat_extend: 300
-    network:
-      vlan: 100
-      policy: internet-only
-      ipset: portal_allow_guest
+    profile: guest-profile
+  staff:
+    profile: staff-profile
 
-  employee:
-    ttl:
-      default: 28800
-      heartbeat_extend: 600
-    network:
-      vlan: 10
-      policy: corp-full
-      ipset: portal_allow_employee
 
-  admin:
-    ttl:
-      default: 86400
-      heartbeat_extend: 1800
-    network:
-      vlan: 1
-      policy: infra-full
-      ipset: portal_allow_admin
-  
+# =========================
+# Network profiles
+# =========================
+# Profile defines actual data-plane behavior
+profiles:
+  guest-profile:
+    vlan: 100
+
+    # Firewall / ipset group name
+    # NOTE: In production, consider using names like "portal_guest"
+    firewall_group: portal_allow_guest
+
+    # Default session TTL in seconds
+    session_ttl: 1800
+
+  staff-profile:
+    vlan: 200
+    firewall_group: portal_allow_staff
+    session_ttl: 28800
+
+
+# =========================
+# Role assignment rules
+# =========================
+# Rules are evaluated by ascending priority (lower = higher priority)
+role_rules:
+  - name: guest-ssid
+    priority: 100
+    when:
+      # SSID name broadcasted by AP
+      ssid: GuestWiFi
+
+      # Authentication method used
+      # open | portal | sms | radius
+      auth: portal
+    assign: guest
+
+  - name: employee-wifi
+    priority: 10
+    when:
+      ssid: CorpWiFi
+      auth: radius
+    assign: staff
+
+
+# =========================
+# Bypass / escape rules
+# =========================
+# Used for:
+# - infrastructure access
+# - cloud service reachability
+# - emergency recovery
 bypass:
-  mac:
-    - "70:4d:7b:64:3b:da"   # admin desktop
-    - "bc:09:1b:24:e5:d2"   # admin laptop
-  ip:
-    - "192.168.16.118"      # controller
-    - "192.168.16.1"        # gateway
-  domain:
-    - "portal.example.com"
-    - "login.microsoftonline.com"
-    - "apple.com"
-    - "msftconnecttest.com"
-    - "connectivitycheck.gstatic.com"
+  enabled: true
+
+  # Evaluation order for bypass checks
+  enforce_order:
+    - mac
+    - ip
+    - domain
+
+  # MAC addresses that are always authorized
+  mac_whitelist:
+    - "70:4d:7b:64:3b:da"
+
+  # IP addresses that bypass portal restrictions
+  ip_whitelist:
+    - "192.168.16.1"    # gateway / router
+    - "192.168.16.118"  # controller
+
+  # Domains allowed before authentication
+  # Typically used for OS captive portal detection
+  domains:
+    - "*.microsoft.com"
+    - "*.apple.com"
+
+# =========================
+# Dataplane configuration (for ImmortalWRT)
+# =========================
+dataplane:
+  policy_version: 3
+  portal_ip: 192.168.16.118
+  lan_if: br-lan
+  ipsets:
+    guest: portal_allow_guest
+    staff: portal_allow_staff
