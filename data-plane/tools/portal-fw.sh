@@ -20,6 +20,9 @@ set -eu
 RUNTIME_ENV="${RUNTIME_ENV:-/tmp/portal-runtime.env}"
 LOG_TAG="${LOG_TAG:-portal-fw}"
 
+# --- DNSMASQ / DOMAIN BYPASS ---
+DNSMASQ_IPSET_CONF="/tmp/portal-dnsmasq-bypass.conf"
+
 # Defaults (used if runtime env is missing/partial)
 LAN_IF="${LAN_IF:-br-lan}"
 PORTAL_IP="${PORTAL_IP:-192.168.16.118}"
@@ -28,7 +31,9 @@ DNS_PORT="${DNS_PORT:-53}"
 # ipset names (may be overridden by runtime env)
 IPSET_GUEST="${IPSET_GUEST:-portal_allow_guest}"
 IPSET_STAFF="${IPSET_STAFF:-portal_allow_staff}"
-IPSET_BYPASS="${IPSET_BYPASS:-portal_bypass_mac}"
+IPSET_BYPASS_MAC="${IPSET_BYPASS_MAC:-portal_bypass_mac}"
+IPSET_BYPASS_IP="${IPSET_BYPASS_IP:-portal_bypass_ip}"
+IPSET_BYPASS_DNS="${IPSET_BYPASS_DNS:-portal_bypass_dns}"
 
 # chains
 CHAIN_DNS="${CHAIN_DNS:-PORTAL_DNS}"
@@ -48,33 +53,167 @@ PORTAL_IP="${PORTAL_IP:-192.168.16.118}"
 DNS_PORT="${DNS_PORT:-53}"
 IPSET_GUEST="${IPSET_GUEST:-portal_allow_guest}"
 IPSET_STAFF="${IPSET_STAFF:-portal_allow_staff}"
-IPSET_BYPASS="${IPSET_BYPASS:-portal_bypass_mac}"
+IPSET_BYPASS_MAC="${IPSET_BYPASS_MAC:-portal_bypass_mac}"
+IPSET_BYPASS_IP="${IPSET_BYPASS_IP:-portal_bypass_ip}"
+IPSET_BYPASS_DNS="${IPSET_BYPASS_DNS:-portal_bypass_dns}"
 
 log "event=init_start lan_if=${LAN_IF} portal_ip=${PORTAL_IP} dns_port=${DNS_PORT}"
 
 # ---------------------------------------------------------
-# 1) ipsets
+# 1) ipsets: Function to create a MAC-based ipset with version compatibility
 # ---------------------------------------------------------
-ensure_ipset() {
+ensure_ipset_mac() {
   name="$1"
-  if ! ipset list "$name" >/dev/null 2>&1; then
-    # Use per-entry timeout (timeout 0 in header)
-    ipset create "$name" hash:mac timeout
-    log "event=ipset_created name=${name}"
-  else
+
+  # Check if ipset already exists. This avoids redundancy and simplifies the logic.
+  if ipset list "$name" >/dev/null 2>&1; then
     log "event=ipset_exists name=${name}"
+    return 0
   fi
+
+  log "event=ipset_creating name=${name} type=hash:mac"
+
+  # --- Compatibility Attempts (Try newest syntax first, fall back) ---
+
+  # 1. Attempt using ipset v7.x compliant syntax (Option: timeout, Value: 0).
+  # 'timeout 0' sets the default timeout to 0 (permanent), but critically enables
+  # per-entry timeout handling for later 'ipset add' commands in portal-agent.sh.
+  # This specifically fixes the 'Missing mandatory argument' error.
+  if ipset create "$name" hash:mac timeout 0 2>/dev/null; then
+    log "event=ipset_created name=${name} syntax=v7.x_compliant"
+    return 0
+  fi
+
+  # 2. Fallback: Attempt using ipset v6.x syntax (Option: --timeout, Value: 0).
+  # Some older versions of ipset require the -- prefix for create options.
+  if ipset create "$name" hash:mac --timeout 0 2>/dev/null; then
+    log "event=ipset_created name=${name} syntax=v6.x_compliant"
+    return 0
+  fi
+
+  # 3. Last Fallback: Attempt creating the set without any timeout option.
+  # This provides basic MAC filtering functionality for very old ipset versions
+  # that might not support the timeout extension at all.
+  if ipset create "$name" hash:mac 2>/dev/null; then
+    log "event=ipset_created name=${name} syntax=no_timeout"
+    return 0
+  fi
+
+  # If all attempts fail, log a critical error and exit the script.
+  log "error=ipset_create_failed name=${name} msg='All ipset creation attempts failed. Check ipset version/support.'"
+  exit 1
 }
 
-ensure_ipset "$IPSET_GUEST"
-ensure_ipset "$IPSET_STAFF"
-ensure_ipset "$IPSET_BYPASS"
+# Create an IP-based ipset (hash:ip)
+ensure_ipset_ip() {
+  name="$1"
 
-# Always bypass self MAC (bridge MAC) to avoid locking out the router itself
-SELF_MAC="$(cat /sys/class/net/${LAN_IF}/address 2>/dev/null || true)"
+  if ipset list "$name" >/dev/null 2>&1; then
+    log "event=ipset_exists name=${name}"
+    return 0
+  fi
+
+  log "event=ipset_creating name=${name} type=hash:ip"
+
+  if ipset create "$name" hash:ip timeout 0 2>/dev/null; then
+    log "event=ipset_created name=${name} syntax=v7.x_compliant"
+    return 0
+  fi
+
+  if ipset create "$name" hash:ip --timeout 0 2>/dev/null; then
+    log "event=ipset_created name=${name} syntax=v6.x_compliant"
+    return 0
+  fi
+
+  if ipset create "$name" hash:ip 2>/dev/null; then
+    log "event=ipset_created name=${name} syntax=no_timeout"
+    return 0
+  fi
+
+  log "error=ipset_create_failed name=${name} type=hash:ip"
+  exit 1
+}
+
+ensure_ipset_mac "$IPSET_GUEST"
+ensure_ipset_mac "$IPSET_STAFF"
+ensure_ipset_mac "$IPSET_BYPASS_MAC"
+ensure_ipset_ip  "$IPSET_BYPASS_IP"
+ensure_ipset_ip  "$IPSET_BYPASS_DNS"   # Domains are ultimately resolved to IPs
+
+# ---------------------------------------------------------
+# 1.0) Always bypass self MAC (bridge MAC) to avoid locking out the router itself
+# ---------------------------------------------------------
+SELF_MAC="$(cat /sys/class/net/"${LAN_IF}"/address 2>/dev/null || true)"
 if [ -n "$SELF_MAC" ]; then
-  ipset -exist add "$IPSET_BYPASS" "$SELF_MAC" timeout 0 || true
+  ipset -exist add "$IPSET_BYPASS_MAC" "$SELF_MAC" timeout 0 || true
   log "event=bypass_self_mac mac=${SELF_MAC}"
+fi
+
+# ---------------------------------------------------------
+# 1.1) Bypass MACs from controller (JSON array)
+# ---------------------------------------------------------
+if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_MACS:-}" ]; then
+  if echo "$BYPASS_MACS" | jq -e 'type=="array"' >/dev/null 2>&1; then
+    echo "$BYPASS_MACS" | jq -r '.[]' | while read -r mac; do
+      [ -n "$mac" ] || continue
+      ipset -exist add "$IPSET_BYPASS_MAC" "$mac" timeout 0 || true
+      log "event=bypass_ctrl_mac mac=${mac}"
+    done
+  else
+    log "level=error event=bypass_macs_parse_failed raw=${BYPASS_MACS}"
+  fi
+fi
+
+# ---------------------------------------------------------
+# 1.2) Bypass IPs from controller (JSON array)
+# ---------------------------------------------------------
+if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_IPS:-}" ]; then
+  if echo "$BYPASS_IPS" | jq -e 'type=="array"' >/dev/null 2>&1; then
+    echo "$BYPASS_IPS" | jq -r '.[]' | while read -r ip; do
+      [ -n "$ip" ] || continue
+      ipset -exist add "$IPSET_BYPASS_IP" "$ip" timeout 0 || true
+      log "event=bypass_ctrl_ip ip=${ip}"
+    done
+  else
+    log "level=error event=bypass_ips_parse_failed raw=${BYPASS_IPS}"
+  fi
+fi
+
+# ---------------------------------------------------------
+# 1.3) Bypass domains via dnsmasq -> ipset
+# ---------------------------------------------------------
+if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_DOMAINS:-}" ]; then
+  if echo "$BYPASS_DOMAINS" | jq -e 'type=="array"' >/dev/null 2>&1; then
+    : > "$DNSMASQ_IPSET_CONF"
+
+    echo "$BYPASS_DOMAINS" | jq -r '.[]' | while read -r domain; do
+      [ -n "$domain" ] || continue
+      echo "ipset=/${domain}/${IPSET_BYPASS_DNS}" >> "$DNSMASQ_IPSET_CONF"
+      log "event=bypass_ctrl_domain domain=${domain}"
+    done
+
+    # Tell dnsmasq to load it
+    if ! grep -q "$DNSMASQ_IPSET_CONF" /etc/dnsmasq.conf 2>/dev/null; then
+      echo "conf-file=${DNSMASQ_IPSET_CONF}" >> /etc/dnsmasq.conf
+    fi
+
+    # Reload dnsmasq only if we have entries
+    if [ -s "$DNSMASQ_IPSET_CONF" ]; then
+      # Try reload first, fallback to restart
+      if /etc/init.d/dnsmasq reload 2>/dev/null; then
+        log "event=dnsmasq_reloaded reason=bypass_domains"
+      elif /etc/init.d/dnsmasq restart 2>/dev/null; then
+        log "event=dnsmasq_restarted reason=bypass_domains"
+      else
+        log "level=warn event=dnsmasq_reload_failed continuing=true"
+      fi
+    else
+      log "event=dnsmasq_skip reason=no_bypass_domains"
+    fi
+
+  else
+    log "level=error event=bypass_domains_parse_failed raw=${BYPASS_DOMAINS}"
+  fi
 fi
 
 # ---------------------------------------------------------
@@ -99,7 +238,11 @@ iptables -t nat -A "$CHAIN_DNS" -m set --match-set "$IPSET_GUEST" src -j RETURN
 iptables -t nat -A "$CHAIN_DNS" -m set --match-set "$IPSET_STAFF" src -j RETURN
 
 # Bypass MACs -> RETURN
-iptables -t nat -A "$CHAIN_DNS" -m set --match-set "$IPSET_BYPASS" src -j RETURN
+iptables -t nat -A "$CHAIN_DNS" -m set --match-set "$IPSET_BYPASS_MAC" src -j RETURN
+# Bypass IPs -> RETURN
+iptables -t nat -A "$CHAIN_DNS" -m set --match-set "$IPSET_BYPASS_IP" dst -j RETURN
+# Bypass Domains -> RETURN
+iptables -t nat -A "$CHAIN_DNS" -m set --match-set "$IPSET_BYPASS_DNS" dst -j RETURN
 
 # Hijack DNS to portal IP
 iptables -t nat -A "$CHAIN_DNS" -p udp --dport 53 -j DNAT --to-destination "${PORTAL_IP}:${DNS_PORT}"
@@ -130,7 +273,12 @@ iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_GUEST" src -j ACCEPT
 iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_STAFF" src -j ACCEPT
 
 # Allow bypass MACs
-iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_BYPASS" src -j ACCEPT
+iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_BYPASS_MAC" src -j ACCEPT
+# Allow bypass IPs
+iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_BYPASS_IP" dst -j ACCEPT
+# Allow bypass Domains
+iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_BYPASS_DNS" dst -j ACCEPT
+
 
 # Always allow reaching portal/controller IP (for login/heartbeat)
 iptables -A "$CHAIN_FWD" -d "$PORTAL_IP" -j ACCEPT
