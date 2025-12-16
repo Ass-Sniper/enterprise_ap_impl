@@ -20,9 +20,6 @@ set -eu
 RUNTIME_ENV="${RUNTIME_ENV:-/tmp/portal-runtime.env}"
 LOG_TAG="${LOG_TAG:-portal-fw}"
 
-# --- DNSMASQ / DOMAIN BYPASS ---
-DNSMASQ_IPSET_CONF="/tmp/portal-dnsmasq-bypass.conf"
-
 # Defaults (used if runtime env is missing/partial)
 LAN_IF="${LAN_IF:-br-lan}"
 PORTAL_IP="${PORTAL_IP:-192.168.16.118}"
@@ -134,11 +131,61 @@ ensure_ipset_ip() {
   exit 1
 }
 
+assert_ipset_hash_ip() {
+  name="$1"
+  if ipset list "$name" >/dev/null 2>&1; then
+    if ! ipset list "$name" | grep -q "Type: hash:ip"; then
+      log "level=error event=ipset_type_mismatch name=${name} expect=hash:ip"
+      exit 1
+    fi
+  fi
+}
+
+# normalize_domain
+#
+# Normalize domain names for dnsmasq ipset rules.
+#
+# Why this is required:
+# - dnsmasq ipset uses suffix matching, NOT glob patterns
+# - "*.example.com" is WRONG for dnsmasq
+# - Correct form is "example.com"
+#
+# This function:
+# - trims leading/trailing whitespace
+# - strips leading "*." (glob-style wildcard)
+# - strips leading "." (common misconfiguration)
+# - returns empty string for invalid input
+#
+# Examples:
+#   "*.microsoft.com" -> "microsoft.com"
+#   ".apple.com"      -> "apple.com"
+#   "google.com"      -> "google.com"
+#
+normalize_domain() {
+  d="$1"
+
+  # trim whitespace
+  d="$(echo "$d" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+  # strip leading "*."
+  d="${d#*.}"
+
+  # strip leading "."
+  d="${d#.}"
+
+  # basic sanity check (must contain at least one dot)
+  case "$d" in
+    *.*) echo "$d" ;;
+    *)   echo "" ;;
+  esac
+}
+
 ensure_ipset_mac "$IPSET_GUEST"
 ensure_ipset_mac "$IPSET_STAFF"
 ensure_ipset_mac "$IPSET_BYPASS_MAC"
 ensure_ipset_ip  "$IPSET_BYPASS_IP"
 ensure_ipset_ip  "$IPSET_BYPASS_DNS"   # Domains are ultimately resolved to IPs
+assert_ipset_hash_ip "$IPSET_BYPASS_DNS"
 
 # ---------------------------------------------------------
 # 1.0) Always bypass self MAC (bridge MAC) to avoid locking out the router itself
@@ -180,37 +227,37 @@ if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_IPS:-}" ]; then
 fi
 
 # ---------------------------------------------------------
-# 1.3) Bypass domains via dnsmasq -> ipset
+# 1.3) Bypass domains via dnsmasq -> ipset (OpenWrt correct way)
 # ---------------------------------------------------------
 if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_DOMAINS:-}" ]; then
   if echo "$BYPASS_DOMAINS" | jq -e 'type=="array"' >/dev/null 2>&1; then
+    DNSMASQ_IPSET_DIR="/tmp/dnsmasq.d"
+    DNSMASQ_IPSET_CONF="${DNSMASQ_IPSET_DIR}/portal-bypass-ipset.conf"
+
+    mkdir -p "$DNSMASQ_IPSET_DIR"
     : > "$DNSMASQ_IPSET_CONF"
 
-    echo "$BYPASS_DOMAINS" | jq -r '.[]' | while read -r domain; do
+    echo "$BYPASS_DOMAINS" | jq -r '.[]' | while read -r raw; do
+      [ -n "$raw" ] || continue
+
+      domain="$(normalize_domain "$raw")"
       [ -n "$domain" ] || continue
+
       echo "ipset=/${domain}/${IPSET_BYPASS_DNS}" >> "$DNSMASQ_IPSET_CONF"
       log "event=bypass_ctrl_domain domain=${domain}"
     done
 
-    # Tell dnsmasq to load it
-    if ! grep -q "$DNSMASQ_IPSET_CONF" /etc/dnsmasq.conf 2>/dev/null; then
-      echo "conf-file=${DNSMASQ_IPSET_CONF}" >> /etc/dnsmasq.conf
-    fi
-
-    # Reload dnsmasq only if we have entries
     if [ -s "$DNSMASQ_IPSET_CONF" ]; then
-      # Try reload first, fallback to restart
       if /etc/init.d/dnsmasq reload 2>/dev/null; then
         log "event=dnsmasq_reloaded reason=bypass_domains"
       elif /etc/init.d/dnsmasq restart 2>/dev/null; then
         log "event=dnsmasq_restarted reason=bypass_domains"
       else
-        log "level=warn event=dnsmasq_reload_failed continuing=true"
+        log "level=error event=dnsmasq_reload_failed reason=bypass_domains"
       fi
     else
-      log "event=dnsmasq_skip reason=no_bypass_domains"
+      log "event=dnsmasq_skip reason=no_valid_bypass_domains"
     fi
-
   else
     log "level=error event=bypass_domains_parse_failed raw=${BYPASS_DOMAINS}"
   fi

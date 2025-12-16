@@ -39,6 +39,34 @@ log() {
   logger -t "$TAG" "$*"
 }
 
+# ---------------------------------------------------------
+# Health check mode: portal-agent --check
+# ---------------------------------------------------------
+if [ "${1:-}" = "--check" ]; then
+  BASEDIR="$(cd "$(dirname "$0")" && pwd)"
+  SELFTEST="${BASEDIR}/portal-dnsmasq-ipset-selftest.sh"
+
+  log "event=healthcheck_start basedir=${BASEDIR}"
+
+  if [ ! -x "$SELFTEST" ]; then
+    log "level=error event=healthcheck_selftest_missing path=${SELFTEST}"
+    echo "portal-agent: selftest not found or not executable (${SELFTEST})" >&2
+    exit 2
+  fi
+
+  log "event=healthcheck_selftest_exec path=${SELFTEST}"
+
+  if "$SELFTEST"; then
+    log "event=healthcheck_ok"
+    echo "portal-agent: dataplane healthy"
+    exit 0
+  else
+    log "level=error event=healthcheck_failed"
+    echo "portal-agent: dataplane unhealthy" >&2
+    exit 1
+  fi
+fi
+
 # Write env file atomically
 write_env_atomic() {
   tmp="${RUNTIME_ENV}.tmp.$$"
