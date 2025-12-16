@@ -94,11 +94,40 @@ if [ -z "$RESP" ]; then
   exit 1
 fi
 
-# Parse fields (schema is defined by controller; we are defensive)
-POLICY_VERSION="$(printf '%s' "$RESP" | jsonfilter -e '@.policy.version' 2>/dev/null || true)"
-[ -n "$POLICY_VERSION" ] || POLICY_VERSION="$(printf '%s' "$RESP" | jsonfilter -e '@.policy_version' 2>/dev/null || true)"
+# ---------------------------
+# Policy version resolution
+# Priority:
+#   1) dataplane.policy_version   (new, authoritative)
+#   2) 0                           (fallback)
+# ---------------------------
+POLICY_VERSION="$(printf '%s' "$RESP" | jsonfilter -e '@.dataplane.policy_version' 2>/dev/null || true)"
 [ -n "$POLICY_VERSION" ] || POLICY_VERSION="0"
+# ---------------------------
+# Policy version validation
+# (must be numeric)
+# ---------------------------
+case "$POLICY_VERSION" in
+  ''|*[!0-9]*)
+    log "level=warn event=invalid_policy_version raw_value='${POLICY_VERSION}' fallback=0"
+    POLICY_VERSION="0"
+    ;;
+esac
 
+log "event=policy_version_resolved value=${POLICY_VERSION}"
+
+# ---------------------------
+# Policy version semantics
+# 0 means "unknown" → force apply
+# ---------------------------
+FORCE_APPLY=0
+if [ "$POLICY_VERSION" -eq 0 ]; then
+  log "level=info event=policy_version_unknown force_apply=true"
+  FORCE_APPLY=1
+fi
+
+# ---------------------------
+# Dataplane fields
+# ---------------------------
 LAN_IF="$(printf '%s' "$RESP" | jsonfilter -e '@.dataplane.lan_if' 2>/dev/null || true)"
 [ -n "$LAN_IF" ] || LAN_IF="br-lan"
 
@@ -149,9 +178,16 @@ EOF
 
 log "event=runtime_fetch_done policy_version=${POLICY_VERSION} lan_if=${LAN_IF} portal_ip=${PORTAL_IP} ipset_guest=${IPSET_GUEST} ipset_staff=${IPSET_STAFF}"
 
-# Optionally apply dataplane rules
+# ---------------------------
+# Apply dataplane rules
+# ---------------------------
 if [ "$APPLY_FW" = "1" ] && [ -x "$PORTAL_FW" ]; then
-  log "event=apply_fw_start script=${PORTAL_FW}"
+  if [ "$FORCE_APPLY" = "1" ]; then
+    log "event=apply_fw_force reason=policy_version_unknown script=${PORTAL_FW}"
+  else
+    log "event=apply_fw_conditional script=${PORTAL_FW}"
+  fi
+
   if "$PORTAL_FW"; then
     log "event=apply_fw_done"
   else
