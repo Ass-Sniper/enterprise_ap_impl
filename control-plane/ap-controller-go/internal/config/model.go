@@ -7,6 +7,7 @@ type Config struct {
 	Profiles   map[string]Profile `yaml:"profiles"`
 	RoleRules  []RoleRule         `yaml:"role_rules"`
 	Bypass     Bypass             `yaml:"bypass"`
+	Dataplane  Dataplane          `yaml:"dataplane"`
 }
 
 type Controller struct {
@@ -58,4 +59,11 @@ type Bypass struct {
 	MacWhitelist []string `yaml:"mac_whitelist"`
 	IPWhitelist  []string `yaml:"ip_whitelist"`
 	Domains      []string `yaml:"domains"`
+}
+
+type Dataplane struct {
+	PolicyVersion int               `yaml:"policy_version"`
+	PortalIP      string            `yaml:"portal_ip"`
+	LanIF         string            `yaml:"lan_if"`
+	IPSets        map[string]string `yaml:"ipsets"`
 }

@@ -27,6 +27,12 @@ func BuildRuntimePolicy(cfg *config.Config) RuntimePolicy {
 			IPWhitelist:  cfg.Bypass.IPWhitelist,
 			Domains:      cfg.Bypass.Domains,
 		},
+		Dataplane: RuntimeDataplane{
+			PolicyVersion: cfg.Dataplane.PolicyVersion,
+			PortalIP:      cfg.Dataplane.PortalIP,
+			LanIF:         cfg.Dataplane.LanIF,
+			IPSets:        cfg.Dataplane.IPSets,
+		},
 	}
 
 	// Roles
@@ -46,7 +52,7 @@ func BuildRuntimePolicy(cfg *config.Config) RuntimePolicy {
 	}
 
 	// Version (filled later)
-	rp.Version = BuildPolicyVersion(
+	rp.Version = BuildControllerVersion(
 		struct {
 			Roles    any
 			Profiles any

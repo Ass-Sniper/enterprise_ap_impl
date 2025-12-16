@@ -21,6 +21,12 @@ func Load(path string) (*Config, error) {
 	if cfg.Redis.Prefix == "" {
 		cfg.Redis.Prefix = "session:"
 	}
+	if cfg.Dataplane.LanIF == "" {
+		return nil, fmt.Errorf("dataplane.lan_if must be set")
+	}
+	if cfg.Dataplane.PortalIP == "" {
+		return nil, fmt.Errorf("dataplane.portal_ip must be set")
+	}
 	return &cfg, nil
 }
 

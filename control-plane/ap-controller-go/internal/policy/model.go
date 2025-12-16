@@ -7,10 +7,11 @@ package policy
 // RuntimePolicy is the top-level response returned to AP / Router
 type RuntimePolicy struct {
 	Controller ControllerInfo            `json:"controller"`
-	Version    PolicyVersion             `json:"version"`
+	Version    ControllerVersion         `json:"controller_version"`
 	Roles      map[string]RuntimeRole    `json:"roles"`
 	Profiles   map[string]RuntimeProfile `json:"profiles"`
 	Bypass     RuntimeBypass             `json:"bypass"`
+	Dataplane  RuntimeDataplane          `json:"dataplane"`
 }
 
 // ControllerInfo identifies controller instance
@@ -24,7 +25,7 @@ type ControllerInfo struct {
 // Versioning
 // =========================
 
-type PolicyVersion struct {
+type ControllerVersion struct {
 	Version   string `json:"version"`   // semantic or incremental
 	Checksum  string `json:"checksum"`  // sha256 of runtime payload
 	Generated int64  `json:"generated"` // unix timestamp
@@ -54,4 +55,14 @@ type RuntimeBypass struct {
 	MacWhitelist []string `json:"mac_whitelist"`
 	IPWhitelist  []string `json:"ip_whitelist"`
 	Domains      []string `json:"domains"`
+}
+
+// =========================
+// Dataplane
+// =========================
+type RuntimeDataplane struct {
+	PolicyVersion int               `json:"policy_version"`
+	PortalIP      string            `json:"portal_ip"`
+	LanIF         string            `json:"lan_if"`
+	IPSets        map[string]string `json:"ipsets"`
 }

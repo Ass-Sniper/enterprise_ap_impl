@@ -10,7 +10,7 @@ controller:
 
   # Product name & version (used in audit logs and API responses)
   name: ap-controller
-  version: 0.1.0
+  controller_version: 0.1.0
 
   # HTTP bind address for control-plane APIs
   bind:

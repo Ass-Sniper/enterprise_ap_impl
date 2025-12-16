@@ -7,13 +7,13 @@ import (
 	"time"
 )
 
-// BuildPolicyVersion calculates version metadata for runtime policy
-func BuildPolicyVersion(payload any, baseVersion string) PolicyVersion {
+// BuildControllerVersion calculates version metadata for runtime policy
+func BuildControllerVersion(payload any, baseVersion string) ControllerVersion {
 	raw, _ := json.Marshal(payload)
 
 	sum := sha256.Sum256(raw)
 
-	return PolicyVersion{
+	return ControllerVersion{
 		Version:   baseVersion,
 		Checksum:  hex.EncodeToString(sum[:]),
 		Generated: time.Now().Unix(),
