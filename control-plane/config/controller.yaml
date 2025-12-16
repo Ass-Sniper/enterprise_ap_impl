@@ -1,0 +1,82 @@
+# =========================
+# Controller global config
+# =========================
+controller:
+  name: ap-controller
+  version: 0.1.0
+  bind:
+    host: 0.0.0.0
+    port: 8443
+
+redis:
+  host: redis
+  port: 6379
+  db: 0
+  prefix: "session:"
+
+session:
+  default_ttl: 3600
+  default_role: guest
+  ttl:
+    login: 3600        # portal login
+    heartbeat: 1800    # client heartbeat
+    dhcp: 600          # dhcp lease observed
+    arp: 300           # arp seen
+    fdb: 120           # bridge fdb
+
+heartbeat:
+  ttl_policy:
+    dhcp: 3600
+    arp: 1800
+    fdb: 600
+    unknown: 600
+
+logging:
+  level: INFO
+
+audit:
+  enabled: true
+  secret: "CHANGE_ME_TO_A_LONG_RANDOM_STRING"
+  algo: "hmac-sha256"
+
+roles:
+  guest:
+    ttl:
+      default: 3600
+      heartbeat_extend: 300
+    network:
+      vlan: 100
+      policy: internet-only
+      ipset: portal_allow_guest
+
+  employee:
+    ttl:
+      default: 28800
+      heartbeat_extend: 600
+    network:
+      vlan: 10
+      policy: corp-full
+      ipset: portal_allow_employee
+
+  admin:
+    ttl:
+      default: 86400
+      heartbeat_extend: 1800
+    network:
+      vlan: 1
+      policy: infra-full
+      ipset: portal_allow_admin
+  
+bypass:
+  mac:
+    - "70:4d:7b:64:3b:da"   # admin desktop
+    - "bc:09:1b:24:e5:d2"   # admin laptop
+  ip:
+    - "192.168.16.118"      # controller
+    - "192.168.16.1"        # gateway
+  domain:
+    - "portal.example.com"
+    - "login.microsoftonline.com"
+    - "apple.com"
+    - "msftconnecttest.com"
+    - "connectivitycheck.gstatic.com"

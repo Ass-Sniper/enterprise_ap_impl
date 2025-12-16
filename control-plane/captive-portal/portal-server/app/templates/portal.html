@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Captive Portal</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" href="/static/favicon.ico" type="image/x-icon" />
+</head>
+<body>
+  <div class="wrap">
+    <main class="card">
+      <h3>Captive Portal</h3>
+      <p>请输入客户端的 MAC 地址以完成认证。</p>
+      <form method="post" action="/login">
+        <div class="input">
+          <label for="mac">客户端 MAC 地址</label>
+          <input id="mac" name="mac" placeholder="例如: AA:BB:CC:DD:EE:FF" required />
+        </div>
+        <button class="btn" type="submit">登录</button>
+      </form>
+      <div class="footer">由企业 AP 控制器提供</div>
+    </main>
+  </div>
+</body>
+</html>

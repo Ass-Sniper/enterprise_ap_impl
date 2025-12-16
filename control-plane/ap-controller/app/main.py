@@ -1,120 +1,195 @@
-import os
-from typing import Optional, Literal
+from fastapi import FastAPI
+from pydantic import BaseModel
+from app.store import (
+    create_session,
+    get_session_full,
+    refresh_session,
+    delete_session,
+    redis_health,
+)
+from app.config import load_config
+from app.audit import audit_log
 
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+cfg = load_config()
 
-from app.store import set_session, get_session, del_session, healthcheck, normalize_mac
+CONTROLLER_CFG = cfg["controller"]
+SESSION_CFG = cfg["session"]
+ROLE_CFG = cfg["roles"]
 
-APP_TITLE = os.getenv("APP_TITLE", "AP Controller")
-DEFAULT_TTL = int(os.getenv("SESSION_TTL_DEFAULT", "3600"))
-MAX_TTL = int(os.getenv("SESSION_TTL_MAX", "86400"))  # 1 day cap for safety
-
-app = FastAPI(title=APP_TITLE)
+app = FastAPI(
+    title=CONTROLLER_CFG["name"],
+    version=CONTROLLER_CFG["version"],
+)
 
 
 class LoginReq(BaseModel):
-    mac: str = Field(..., description="Client MAC address, aa:bb:cc:dd:ee:ff")
-    # 可扩展：用户名/密码/券码/短信等
-    # username: Optional[str] = None
-    # password: Optional[str] = None
+    mac: str
 
 
 class HeartbeatReq(BaseModel):
     mac: str
+    source: str | None = None
+
+    class Config:
+        extra = "allow"
 
 
 class LogoutReq(BaseModel):
     mac: str
 
 
-class SessionResp(BaseModel):
-    authorized: bool
-    role: Optional[str] = None
-    ttl: Optional[int] = None
+# ---------- Helpers ----------
 
+def build_session_resp(sess: dict) -> dict:
+    """
+    Build external session response with role-based network policy injected.
+    """
+    role = sess.get("role")
+    ttl = sess.get("ttl")
 
-def clamp_ttl(ttl: int) -> int:
-    if ttl <= 0:
-        return DEFAULT_TTL
-    return min(ttl, MAX_TTL)
+    role_cfg = ROLE_CFG.get(role, {})
+    network_cfg = role_cfg.get("network", {})
+
+    return {
+        "authorized": True,
+        "role": role,
+        "ttl": ttl,
+        "network": {
+            "vlan": network_cfg.get("vlan"),
+            "policy": network_cfg.get("policy"),
+            "ipset": network_cfg.get("ipset"),
+        },
+    }
+
+# ---------- Endpoints ----------
 
 
 @app.get("/")
 def root():
-    return {"status": "ap-controller ok", "title": APP_TITLE}
+    return {"status": "ok"}
 
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok", **healthcheck()}
+    return {
+        "status": "ok",
+        "redis": redis_health(),
+    }
 
 
-@app.post("/portal/login", response_model=SessionResp)
+@app.post("/portal/login")
 def portal_login(req: LoginReq):
-    """
-    登录：创建 session，并给 Redis 设置 TTL。
-    这里先做 demo：全部允许，role=guest。
-    你后续可以接入：RADIUS/LDAP/券码/短信/企业账号等。
-    """
-    try:
-        mac = normalize_mac(req.mac)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    role = "guest"
+    ttl = 3600
 
-    role: Literal["guest", "staff", "admin"] = "guest"
-    ttl = clamp_ttl(DEFAULT_TTL)
+    create_session(req.mac, role, ttl)
+    sess = get_session_full(req.mac)
+    resp = build_session_resp(sess)
 
-    set_session(mac, role, ttl)
-    return {"authorized": True, "role": role, "ttl": ttl}
+    audit_log(
+        event="portal.login",
+        mac=req.mac,
+        authorized=True,
+        role=resp["role"],
+        ttl=resp["ttl"],
+        network=resp["network"],
+        result="ok",
+    )
+
+    return resp
 
 
-@app.post("/portal/heartbeat", response_model=SessionResp)
+@app.post("/portal/heartbeat")
 def portal_heartbeat(req: HeartbeatReq):
-    """
-    心跳：若已有 session，则刷新 TTL（续期）。
-    """
-    try:
-        mac = normalize_mac(req.mac)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    refreshed = refresh_session(req.mac, req.source)
 
-    sess, ttl = get_session(mac)
-    if not sess:
+    if not refreshed:
+        audit_log(
+            event="portal.heartbeat",
+            mac=req.mac,
+            authorized=False,
+            source=req.source,
+            result="not_found",
+        )
         return {"authorized": False}
 
-    role = sess.get("role") or "guest"
-    ttl_new = clamp_ttl(DEFAULT_TTL)
-    set_session(mac, role, ttl_new)
-    return {"authorized": True, "role": role, "ttl": ttl_new}
+    sess = get_session_full(req.mac)
+    if not sess:
+        audit_log(
+            event="portal.heartbeat",
+            mac=req.mac,
+            authorized=False,
+            source=req.source,
+            result="expired_after_refresh",
+        )
+        return {"authorized": False}
+
+    resp = build_session_resp(sess)
+
+    audit_log(
+        event="portal.heartbeat",
+        mac=req.mac,
+        authorized=True,
+        role=resp["role"],
+        ttl=resp["ttl"],
+        network=resp["network"],
+        source=req.source,
+        result="ok",
+    )
+
+    return resp
 
 
-@app.post("/portal/logout", response_model=SessionResp)
+@app.post("/portal/logout")
 def portal_logout(req: LogoutReq):
-    """
-    下线：主动删除 session（例如用户点击退出）。
-    """
-    try:
-        mac = normalize_mac(req.mac)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    sess = get_session_full(req.mac)
+    existed = delete_session(req.mac)
 
-    del_session(mac)
+    resp = build_session_resp(sess) if sess else None
+
+    audit_log(
+        event="portal.logout",
+        mac=req.mac,
+        authorized=False,
+        role=resp["role"] if resp else None,
+        network=resp["network"] if resp else None,
+        result="ok" if existed else "not_found",
+    )
+
     return {"authorized": False}
 
-
-@app.get("/portal/status/{mac}", response_model=SessionResp)
+@app.get("/portal/status/{mac}")
 def portal_status(mac: str):
-    """
-    给 ImmortalWRT 同步脚本用：查询是否授权 + 剩余 TTL。
-    """
-    try:
-        mac = normalize_mac(mac)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    sess = get_session_full(mac)
+    if not sess:
+        return {
+            "authorized": False,
+            "role": None,
+            "ttl": None,
+            "network": None,
+        }
 
-    sess, ttl = get_session(mac)
-    if not sess or ttl <= 0:
-        return {"authorized": False}
+    return build_session_resp(sess)
 
-    return {"authorized": True, "role": sess.get("role"), "ttl": ttl}
+
+@app.post("/portal/batch_status")
+def batch_status(req: dict):
+    results = []
+
+    for e in req.get("entries", []):
+        mac = e.get("mac")
+        sess = get_session_full(mac)
+
+        if not sess:
+            results.append({
+                "mac": mac,
+                "authorized": False,
+            })
+            continue
+
+        resp = build_session_resp(sess)
+        resp["mac"] = mac
+        results.append(resp)
+
+    return {"results": results}
+

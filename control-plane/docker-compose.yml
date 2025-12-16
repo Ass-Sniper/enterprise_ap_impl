@@ -9,6 +9,8 @@ services:
     container_name: ap-controller
     ports:
       - "8443:8443"
+    volumes:
+      - ./config/controller.yaml:/app/config/controller.yaml:ro
     environment:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
@@ -20,5 +22,10 @@ services:
     container_name: captive-portal
     ports:
       - "8080:8080"
+    volumes:
+      - ./captive-portal/portal-server/app/templates:/app/portal-server/app/templates:ro
+      - ./captive-portal/portal-server/app/static:/app/portal-server/app/static:ro
+    environment:
+      - CONTROLLER_URL=http://ap-controller:8443
     depends_on:
       - ap-controller

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>认证结果</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" href="/static/favicon.ico" type="image/x-icon" />
+</head>
+<body>
+  <div class="wrap">
+    <main class="card" data-mac="{{ mac }}">
+      <h3>认证结果</h3>
+      <p class="sub">客户端 MAC：<strong>{{ mac }}</strong></p>
+
+      <div class="row">
+        <span class="label">授权状态</span>
+        {% if result.authorized %}
+          <span class="badge ok">已授权</span>
+        {% else %}
+          <span class="badge fail">未授权</span>
+        {% endif %}
+      </div>
+
+      <div class="grid">
+        <div class="label">角色</div>
+        <div class="value" id="val-role">{{ result.role or "-" }}</div>
+
+        <div class="label">TTL</div>
+        <div class="value" id="val-ttl">{{ ttl_human }}{% if result.ttl is defined %}（{{ result.ttl }} 秒）{% endif %}</div>
+
+        <div class="label">VLAN</div>
+        <div class="value" id="val-vlan">
+          {% if result.network and result.network.vlan is defined %}
+            {{ result.network.vlan }}
+          {% else %}-{% endif %}
+        </div>
+
+        <div class="label">策略</div>
+        <div class="value" id="val-policy">
+          {% if result.network and result.network.policy is defined %}
+            {{ result.network.policy }}
+          {% else %}-{% endif %}
+        </div>
+
+        <div class="label">IP 集合</div>
+        <div class="value" id="val-ipset">
+          {% if result.network and result.network.ipset is defined %}
+            {{ result.network.ipset }}
+          {% else %}-{% endif %}
+        </div>
+      </div>
+
+      <div class="actions">
+        <a class="btn" href="/">返回</a>
+        <button class="btn" id="btn-refresh" type="button">刷新</button>
+        <button class="btn btn-danger" id="btn-logout" type="button">注销</button>
+      </div>
+
+      <p class="muted" style="margin-top:12px;">如需更改，返回上一页重新提交。</p>
+    </main>
+  </div>
+  <script defer src="/static/app.js"></script>
+</body>
+</html>
