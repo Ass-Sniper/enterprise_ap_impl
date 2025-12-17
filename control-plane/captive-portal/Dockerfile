@@ -7,8 +7,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# 安装运行所需依赖
-RUN pip install --no-cache-dir fastapi uvicorn requests jinja2
+# 核心修改：使用清华源 (-i) 并增加超时重试 (--default-timeout)
+RUN pip install --no-cache-dir \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    --default-timeout=100 \
+    fastapi uvicorn requests jinja2
 
 # 复制应用代码（包含 templates）
 COPY portal-server /app/portal-server
