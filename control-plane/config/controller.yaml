@@ -132,8 +132,9 @@ bypass:
   # Domains allowed before authentication
   # Used for OS captive portal detection
   domains:
-    # Windows
-    - "msftconnecttest.com"
+    # Windows: HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\NlaSvc\Parameters\Internet\
+    - "www.msftconnecttest.com"
+    - "dns.msftncsi.com"
 
     # Apple (iOS / macOS)
     - "apple.com"
