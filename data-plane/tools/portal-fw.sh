@@ -23,6 +23,7 @@ LOG_TAG="${LOG_TAG:-portal-fw}"
 # Defaults (used if runtime env is missing/partial)
 LAN_IF="${LAN_IF:-br-lan}"
 PORTAL_IP="${PORTAL_IP:-192.168.16.118}"
+PORTAL_PORT="${PORTAL_PORT:-8080}"
 DNS_PORT="${DNS_PORT:-53}"
 
 # ipset names (may be overridden by runtime env)
@@ -35,6 +36,7 @@ IPSET_BYPASS_DNS="${IPSET_BYPASS_DNS:-portal_bypass_dns}"
 # chains
 CHAIN_DNS="${CHAIN_DNS:-PORTAL_DNS}"
 CHAIN_FWD="${CHAIN_FWD:-PORTAL_FWD}"
+CHAIN_HTTP="${CHAIN_HTTP:-PORTAL_HTTP}"
 
 log() { logger -t "$LOG_TAG" "$*"; }
 
@@ -47,6 +49,7 @@ fi
 # Ensure variables exist after sourcing
 LAN_IF="${LAN_IF:-br-lan}"
 PORTAL_IP="${PORTAL_IP:-192.168.16.118}"
+PORTAL_PORT="${PORTAL_PORT:-8080}"
 DNS_PORT="${DNS_PORT:-53}"
 IPSET_GUEST="${IPSET_GUEST:-portal_allow_guest}"
 IPSET_STAFF="${IPSET_STAFF:-portal_allow_staff}"
@@ -438,7 +441,58 @@ COUNT_AFTER="$(ipset_count "$IPSET_BYPASS_DNS")"
 log "event=bypass_dns_apply_done count_after=${COUNT_AFTER}"
 
 # ---------------------------------------------------------
-# 2) NAT: DNS hijack chain
+# 2) NAT: HTTP captive portal (PREROUTING)
+# ---------------------------------------------------------
+if ! iptables -t nat -L "$CHAIN_HTTP" >/dev/null 2>&1; then
+  iptables -t nat -N "$CHAIN_HTTP"
+  log "event=chain_created table=nat chain=${CHAIN_HTTP}"
+fi
+
+# Hook PREROUTING -> CHAIN_HTTP (LAN only, TCP/80)
+if ! iptables -t nat -C PREROUTING -p tcp --dport 80 -j "$CHAIN_HTTP" >/dev/null 2>&1; then
+  # Insert after DNS hook (DNS is at position 1)
+  iptables -t nat -I PREROUTING 2 -p tcp --dport 80 -j "$CHAIN_HTTP"
+  log "event=chain_hooked table=nat hook=PREROUTING chain=${CHAIN_HTTP} proto=tcp dport=80"
+fi
+
+# Rebuild HTTP portal chain (reconcile semantics)
+iptables -t nat -F "$CHAIN_HTTP"
+
+# Authorized clients -> RETURN
+iptables -t nat -A "$CHAIN_HTTP" -m set --match-set "$IPSET_GUEST" src -j RETURN
+iptables -t nat -A "$CHAIN_HTTP" -m set --match-set "$IPSET_STAFF" src -j RETURN
+
+# Bypass MACs -> RETURN
+iptables -t nat -A "$CHAIN_HTTP" -m set --match-set "$IPSET_BYPASS_MAC" src -j RETURN
+
+# Bypass IPs (dst) -> RETURN
+iptables -t nat -A "$CHAIN_HTTP" -m set --match-set "$IPSET_BYPASS_IP" dst -j RETURN
+
+# Unauthenticated HTTP -> DNAT to portal
+iptables -t nat -A "$CHAIN_HTTP" \
+  -p tcp --dport 80 \
+  -j DNAT --to-destination "${PORTAL_IP}:${PORTAL_PORT}"
+
+# Stop further NAT processing after portal DNAT
+iptables -t nat -A "$CHAIN_HTTP" -j RETURN
+
+log "event=http_portal_rules_installed chain=${CHAIN_HTTP} to=${PORTAL_IP}:${PORTAL_PORT}"
+
+# ---------------------------------------------------------
+# 2.1) NAT: HTTP portal SNAT (POSTROUTING)
+# ---------------------------------------------------------
+# Ensure reply packets return via router (avoid TCP RST)
+if ! iptables -t nat -C POSTROUTING \
+    -d "$PORTAL_IP" -p tcp --dport "$PORTAL_PORT" \
+    -j MASQUERADE 2>/dev/null; then
+  iptables -t nat -A POSTROUTING \
+    -d "$PORTAL_IP" -p tcp --dport "$PORTAL_PORT" \
+    -j MASQUERADE
+  log "event=http_portal_snat_installed dst=${PORTAL_IP}:${PORTAL_PORT}"
+fi
+
+# ---------------------------------------------------------
+# 3) NAT: DNS hijack chain
 # ---------------------------------------------------------
 if ! iptables -t nat -L "$CHAIN_DNS" >/dev/null 2>&1; then
   iptables -t nat -N "$CHAIN_DNS"
@@ -446,8 +500,8 @@ if ! iptables -t nat -L "$CHAIN_DNS" >/dev/null 2>&1; then
 fi
 
 # Hook PREROUTING -> CHAIN_DNS (LAN only)
-if ! iptables -t nat -C PREROUTING -i "$LAN_IF" -j "$CHAIN_DNS" >/dev/null 2>&1; then
-  iptables -t nat -I PREROUTING 1 -i "$LAN_IF" -j "$CHAIN_DNS"
+if ! iptables -t nat -C PREROUTING -j "$CHAIN_DNS" >/dev/null 2>&1; then
+  iptables -t nat -I PREROUTING 1 -j "$CHAIN_DNS"
   log "event=chain_hooked table=nat hook=PREROUTING chain=${CHAIN_DNS} in=${LAN_IF}"
 fi
 
@@ -473,7 +527,7 @@ iptables -t nat -A "$CHAIN_DNS" -j RETURN
 log "event=dns_rules_installed chain=${CHAIN_DNS}"
 
 # ---------------------------------------------------------
-# 3) FILTER: forwarding control chain
+# 4) FILTER: forwarding control chain
 # ---------------------------------------------------------
 if ! iptables -L "$CHAIN_FWD" >/dev/null 2>&1; then
   iptables -N "$CHAIN_FWD"
@@ -497,12 +551,22 @@ iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_STAFF" src -j ACCEPT
 iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_BYPASS_MAC" src -j ACCEPT
 # Allow bypass IPs
 iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_BYPASS_IP" dst -j ACCEPT
-# Allow bypass Domains
+# Allow bypass Domains (domain-based bypass via DNS -> ipset)
 iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_BYPASS_DNS" dst -j ACCEPT
 
 
 # Always allow reaching portal/controller IP (for login/heartbeat)
 iptables -A "$CHAIN_FWD" -d "$PORTAL_IP" -j ACCEPT
+
+# ---------------------------------------------------------
+# HTTPS captive portal assist:
+# For unauthenticated clients, actively reject HTTPS (443)
+# to trigger OS captive-portal fallback to HTTP.
+# ---------------------------------------------------------
+iptables -A "$CHAIN_FWD" \
+  -p tcp --dport 443 \
+  -j REJECT --reject-with tcp-reset
+log "event=https_block_installed dport=443 action=tcp-reset"
 
 # Block everything else
 iptables -A "$CHAIN_FWD" -j REJECT --reject-with icmp-port-unreachable
