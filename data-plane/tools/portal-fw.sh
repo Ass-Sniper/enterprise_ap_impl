@@ -131,6 +131,16 @@ ensure_ipset_ip() {
   exit 1
 }
 
+assert_ipset_hash_mac() {
+  name="$1"
+  if ipset list "$name" >/dev/null 2>&1; then
+    if ! ipset list "$name" | grep -q "Type: hash:mac"; then
+      log "level=error event=ipset_type_mismatch name=${name} expect=hash:mac"
+      exit 1
+    fi
+  fi
+}
+
 assert_ipset_hash_ip() {
   name="$1"
   if ipset list "$name" >/dev/null 2>&1; then
@@ -180,15 +190,177 @@ normalize_domain() {
   esac
 }
 
+# ---------------------------------------------------------
+# ipset_count
+#
+# Count the number of entries in an ipset in a robust way.
+#
+# Why this helper exists:
+# - `ipset list` output is NOT a stable API
+# - Member lines may not always start with digits
+#   (e.g. IPv6 addresses, formatting differences)
+# - grep-based counting (e.g. ^[0-9]) is unreliable
+#
+# This function:
+# - Parses the section AFTER the "Members:" line
+# - Counts only non-empty member lines
+# - Works consistently across:
+#     * IPv4 / IPv6
+#     * different ipset versions
+#     * BusyBox / full ipset
+#
+# Args:
+#   $1: ipset name
+#
+# Output:
+#   Prints the number of members to stdout
+#   Prints 0 if the ipset is empty or missing members
+#
+# Notes:
+# - Errors from `ipset list` are suppressed
+# - This function is intended for logging / auditing,
+#   not for control-flow decisions
+# ---------------------------------------------------------
+ipset_count() {
+  ipset list "$1" 2>/dev/null \
+    | awk '/Members:/ {f=1; next} f && NF {c++} END {print c+0}'
+}
+
+# =========================================================
+# DNS dataplane constants (GLOBAL)
+# =========================================================
+DNSMASQ_IPSET_DIR="/tmp/dnsmasq.d"
+DNSMASQ_IPSET_CONF="${DNSMASQ_IPSET_DIR}/portal-bypass-ipset.conf"
+
+# ---------------------------------------------------------
+# reconcile_ipset
+#
+# Reconcile an ipset to match the desired runtime state
+# (runtime-authoritative, flush-and-rebuild semantics).
+#
+# Why this helper exists:
+# - ipsets are stateful and persist across script runs
+# - incremental "add-only" updates lead to stale entries
+# - controller / runtime must be the single source of truth
+#
+# This function enforces a strict reconcile model:
+#   1. Ensure the target ipset exists
+#   2. Count and flush existing entries
+#   3. Validate and parse the runtime JSON array
+#   4. Rebuild the ipset by invoking a caller-provided
+#      add-callback for each runtime element
+#   5. Log before/after state for auditability
+#
+# Design notes:
+# - The ipset output format is NOT treated as an API
+# - Counting is done via the "Members:" section only
+# - JSON parsing uses `printf | jq` for deterministic behavior
+# - The add operation itself is delegated to a callback,
+#   allowing policy-specific behavior (MAC / IP / variants)
+#
+# What this function does NOT do:
+# - It does not create ipsets or change their types
+# - It does not apply timeouts or expiration policies
+# - It does not handle multi-layer models (e.g. DNS + ipset)
+#
+# Typical usage:
+#   reconcile_ipset \
+#     "$IPSET_BYPASS_IP" \
+#     "bypass_ip" \
+#     "$BYPASS_IPS" \
+#     add_bypass_ip
+#
+# Args:
+#   $1: ipset name
+#   $2: logical label for logging (e.g. "bypass_ip")
+#   $3: runtime JSON array string (or empty / null)
+#   $4: add-callback function name
+#
+# Behavior with empty runtime:
+# - The ipset is flushed
+# - No entries are added
+# - The final count is logged as 0
+#
+# Error handling:
+# - Missing ipset or invalid JSON is logged as an error
+# - The function returns non-zero on fatal validation errors
+# - Partial rebuilds are avoided by validating JSON upfront
+#
+# Intended scope:
+# - Dataplane reconciliation and audit logging
+# - Not intended as a generic ipset manipulation library
+# ---------------------------------------------------------
+reconcile_ipset() {
+  _set="$1"
+  _label="$2"
+  _json="$3"
+  _add_fn="$4"
+
+  if ! ipset list "$_set" >/dev/null 2>&1; then
+    log "level=error event=${_label}_ipset_missing name=${_set}"
+    return 1
+  fi
+
+  _before="$(ipset_count "$_set")"
+  # Best-effort flush (ignore transient ipset v7.x errors: ipset v7.6: Internal protocol error)
+  ipset flush "$_set" 2>/dev/null || true
+  log "event=${_label}_flush count_before=${_before}"
+
+  if [ -z "$_json" ] || [ "$_json" = "null" ]; then
+    log "event=${_label}_skip reason=empty_runtime"
+    log "event=${_label}_apply_done count_after=0"
+    return 0
+  fi
+
+  if ! printf '%s' "$_json" | jq -e 'type=="array"' >/dev/null 2>&1; then
+    log "level=error event=${_label}_parse_failed raw=${_json}"
+    return 1
+  fi
+
+  printf '%s' "$_json" | jq -r '.[]' | while IFS= read -r item; do
+    [ -n "$item" ] || continue
+    "$_add_fn" "$item"
+  done
+
+  _after="$(ipset_count "$_set")"
+  log "event=${_label}_apply_done count_after=${_after}"
+}
+
+add_bypass_mac() {
+  mac="$1"
+  ipset -exist add "$IPSET_BYPASS_MAC" "$mac" timeout 0 || true
+  log "event=bypass_ctrl_mac mac=${mac}"
+}
+
+add_bypass_ip() {
+  ip="$1"
+  ipset -exist add "$IPSET_BYPASS_IP" "$ip" timeout 0 || true
+  log "event=bypass_ctrl_ip ip=${ip}"
+}
+
+add_bypass_domain() {
+  raw="$1"
+  domain="$(normalize_domain "$raw")"
+  [ -n "$domain" ] || return 0
+
+  echo "ipset=/${domain}/${IPSET_BYPASS_DNS}" >> "$DNSMASQ_IPSET_CONF"
+  log "event=bypass_ctrl_domain domain=${domain}"
+}
+
+
 ensure_ipset_mac "$IPSET_GUEST"
+assert_ipset_hash_mac "$IPSET_GUEST"
 ensure_ipset_mac "$IPSET_STAFF"
+assert_ipset_hash_mac "$IPSET_STAFF"
 ensure_ipset_mac "$IPSET_BYPASS_MAC"
+assert_ipset_hash_mac "$IPSET_BYPASS_MAC"
 ensure_ipset_ip  "$IPSET_BYPASS_IP"
+assert_ipset_hash_ip "$IPSET_BYPASS_IP"
 ensure_ipset_ip  "$IPSET_BYPASS_DNS"   # Domains are ultimately resolved to IPs
 assert_ipset_hash_ip "$IPSET_BYPASS_DNS"
 
 # ---------------------------------------------------------
-# 1.0) Always bypass self MAC (bridge MAC) to avoid locking out the router itself
+# 1.1) Bypass MAC reconcile
 # ---------------------------------------------------------
 SELF_MAC="$(cat /sys/class/net/"${LAN_IF}"/address 2>/dev/null || true)"
 if [ -n "$SELF_MAC" ]; then
@@ -196,100 +368,73 @@ if [ -n "$SELF_MAC" ]; then
   log "event=bypass_self_mac mac=${SELF_MAC}"
 fi
 
-# ---------------------------------------------------------
-# 1.1) Bypass MACs from controller (JSON array)
-# ---------------------------------------------------------
-if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_MACS:-}" ]; then
-  if printf '%s' "$BYPASS_MACS" | jq -e 'type=="array"' >/dev/null 2>&1; then
-    printf '%s' "$BYPASS_MACS" | jq -r '.[]' | while read -r mac; do
-      [ -n "$mac" ] || continue
-      ipset -exist add "$IPSET_BYPASS_MAC" "$mac" timeout 0 || true
-      log "event=bypass_ctrl_mac mac=${mac}"
-    done
-  else
-    log "level=error event=bypass_macs_parse_failed raw=${BYPASS_MACS}"
-  fi
+if [ "${BYPASS_ENABLED:-false}" = "true" ]; then
+  reconcile_ipset \
+    "$IPSET_BYPASS_MAC" \
+    "bypass_mac" \
+    "$BYPASS_MACS" \
+    add_bypass_mac
+else
+  reconcile_ipset \
+    "$IPSET_BYPASS_MAC" \
+    "bypass_mac" \
+    "" \
+    :
 fi
 
 # ---------------------------------------------------------
-# 1.2) Reconcile bypass IPs (runtime authoritative)
+# 1.2) Bypass IP reconcile
 # ---------------------------------------------------------
-if ipset list "$IPSET_BYPASS_IP" >/dev/null 2>&1; then
-  COUNT_BEFORE="$(ipset list "$IPSET_BYPASS_IP" | grep -c '^[0-9]')"
-  ipset flush "$IPSET_BYPASS_IP"
-  log "event=bypass_ip_flush count_before=${COUNT_BEFORE}"
+if [ "${BYPASS_ENABLED:-false}" = "true" ]; then
+  reconcile_ipset \
+    "$IPSET_BYPASS_IP" \
+    "bypass_ip" \
+    "$BYPASS_IPS" \
+    add_bypass_ip
+else
+  reconcile_ipset \
+    "$IPSET_BYPASS_IP" \
+    "bypass_ip" \
+    "" \
+    :
 fi
 
 # ---------------------------------------------------------
-# 1.2) Bypass IPs from controller (JSON array)
+# 1.3) DNS bypass reconcile (two-layer model)
 # ---------------------------------------------------------
-if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_IPS:-}" ]; then
-  if printf '%s' "$BYPASS_IPS" | jq -e 'type=="array"' >/dev/null 2>&1; then
-    printf '%s' "$BYPASS_IPS" | jq -r '.[]' | while read -r ip; do
-      [ -n "$ip" ] || continue
-      ipset -exist add "$IPSET_BYPASS_IP" "$ip" timeout 0 || true
-      log "event=bypass_ctrl_ip ip=${ip}"
-    done
-  else
-    log "level=error event=bypass_ips_parse_failed raw=${BYPASS_IPS}"
-  fi
-fi
-COUNT_AFTER="$(ipset list "$IPSET_BYPASS_IP" | grep -c '^[0-9]')"
-log "event=bypass_ip_apply_done count_after=${COUNT_AFTER}"
+# 1.3.1) Result layer: flush DNS ipset (runtime authoritative)
+reconcile_ipset \
+  "$IPSET_BYPASS_DNS" \
+  "bypass_dns" \
+  "" \
+  :
 
+# 1.3.2) Source layer: rebuild dnsmasq ipset rules
+mkdir -p "$DNSMASQ_IPSET_DIR"
+# Truncates (or creates if missing) the file referenced by $DNSMASQ_IPSET_CONF
+# using the no-op ":" command, effectively clearing its contents to an empty file without writing any data.
+: > "$DNSMASQ_IPSET_CONF"
+log "event=bypass_dns_conf_rebuild_start"
 
-# ---------------------------------------------------------
-# 1.3) Reconcile bypass DNS ipset (runtime authoritative)
-# ---------------------------------------------------------
-if ipset list "$IPSET_BYPASS_DNS" >/dev/null 2>&1; then
-  COUNT_BEFORE="$(ipset list "$IPSET_BYPASS_DNS" \
-    | awk '/Members:/ {f=1;next} f && NF {c++} END{print c+0}')"
-  ipset flush "$IPSET_BYPASS_DNS"
-  log "event=bypass_dns_flush count_before=${COUNT_BEFORE}"
+if [ "${BYPASS_ENABLED:-false}" = "true" ]; then
+  reconcile_ipset \
+    "$IPSET_BYPASS_DNS" \
+    "bypass_dns_conf" \
+    "${BYPASS_DOMAINS:-}" \
+    add_bypass_domain
 fi
 
-# ---------------------------------------------------------
-# 1.3) Bypass domains via dnsmasq -> ipset (OpenWrt correct way)
-# ---------------------------------------------------------
-if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_DOMAINS:-}" ]; then
-  if printf '%s' "$BYPASS_DOMAINS" | jq -e 'type=="array"' >/dev/null 2>&1; then
-    DNSMASQ_IPSET_DIR="/tmp/dnsmasq.d"
-    DNSMASQ_IPSET_CONF="${DNSMASQ_IPSET_DIR}/portal-bypass-ipset.conf"
-
-    mkdir -p "$DNSMASQ_IPSET_DIR"
-    # Truncates (or creates if missing) the file referenced by $DNSMASQ_IPSET_CONF
-    # using the no-op ":" command, effectively clearing its contents to an empty file without writing any data.
-    : > "$DNSMASQ_IPSET_CONF"
-
-    log "event=bypass_dns_conf_rebuild_start"
-
-    printf '%s' "$BYPASS_DOMAINS" | jq -r '.[]' | while read -r raw; do
-      [ -n "$raw" ] || continue
-
-      domain="$(normalize_domain "$raw")"
-      [ -n "$domain" ] || continue
-
-      echo "ipset=/${domain}/${IPSET_BYPASS_DNS}" >> "$DNSMASQ_IPSET_CONF"
-      log "event=bypass_ctrl_domain domain=${domain}"
-    done
-
-    if [ -s "$DNSMASQ_IPSET_CONF" ]; then
-      if /etc/init.d/dnsmasq reload 2>/dev/null; then
-        log "event=dnsmasq_reloaded reason=bypass_domains"
-      elif /etc/init.d/dnsmasq restart 2>/dev/null; then
-        log "event=dnsmasq_restarted reason=bypass_domains"
-      else
-        log "level=error event=dnsmasq_reload_failed reason=bypass_domains"
-      fi
-    else
-      log "event=dnsmasq_skip reason=no_valid_bypass_domains"
-    fi
-  else
-    log "level=error event=bypass_domains_parse_failed raw=${BYPASS_DOMAINS}"
-  fi
+# 1.3.3) Reload dnsmasq to apply rule source
+if /etc/init.d/dnsmasq reload 2>/dev/null; then
+  log "event=dnsmasq_reloaded reason=bypass_domains"
+elif /etc/init.d/dnsmasq restart 2>/dev/null; then
+  log "event=dnsmasq_restarted reason=bypass_domains"
+else
+  log "level=error event=dnsmasq_reload_failed reason=bypass_domains"
 fi
-COUNT_AFTER="$(ipset list "$IPSET_BYPASS_DNS" \
-  | awk '/Members:/ {f=1;next} f && NF {c++} END{print c+0}')"
+
+# 1.3.4) Observe final state (result layer)
+COUNT_AFTER="$(ipset_count "$IPSET_BYPASS_DNS")"
 log "event=bypass_dns_apply_done count_after=${COUNT_AFTER}"
 
 # ---------------------------------------------------------
