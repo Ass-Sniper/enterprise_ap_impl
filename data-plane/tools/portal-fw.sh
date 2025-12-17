@@ -288,7 +288,8 @@ if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_DOMAINS:-}" ]; then
     log "level=error event=bypass_domains_parse_failed raw=${BYPASS_DOMAINS}"
   fi
 fi
-COUNT_AFTER="$(ipset list "$IPSET_BYPASS_DNS" | grep -c '^[0-9]')"
+COUNT_AFTER="$(ipset list "$IPSET_BYPASS_DNS" \
+  | awk '/Members:/ {f=1;next} f && NF {c++} END{print c+0}')"
 log "event=bypass_dns_apply_done count_after=${COUNT_AFTER}"
 
 # ---------------------------------------------------------
