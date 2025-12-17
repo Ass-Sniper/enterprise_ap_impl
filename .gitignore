@@ -6,6 +6,8 @@
 *.exe
 *.test
 *.out
+# Patch
+*.patch
 
 # Binaries from 'go install' or 'go build'
 # if compiled into the project root
