@@ -10,7 +10,7 @@ controller:
 
   # Product name & version (used in audit logs and API responses)
   name: ap-controller
-  controller_version: 0.1.0
+  version: 0.1.0
 
   # HTTP bind address for control-plane APIs
   bind:
@@ -129,25 +129,25 @@ bypass:
     - "192.168.16.1"    # gateway / router
     - "192.168.16.118"  # controller
 
-# Domains allowed before authentication
-# Used for OS captive portal detection
-domains:
-  # Windows
-  - "msftconnecttest.com"
+  # Domains allowed before authentication
+  # Used for OS captive portal detection
+  domains:
+    # Windows
+    - "msftconnecttest.com"
 
-  # Apple (iOS / macOS)
-  - "apple.com"
-  - "captive.apple.com"
+    # Apple (iOS / macOS)
+    - "apple.com"
+    - "captive.apple.com"
 
-  # Huawei (EMUI / HarmonyOS)
-  - "connectivitycheck.platform.hicloud.com"
-  - "connectivitycheck.hicloud.com"
-  - "wifi.vmall.com"
-  - "wifi.huawei.com"
+    # Huawei (EMUI / HarmonyOS)
+    - "connectivitycheck.platform.hicloud.com"
+    - "connectivitycheck.hicloud.com"
+    - "wifi.vmall.com"
+    - "wifi.huawei.com"
 
-  # Android / Google
-  - "connectivitycheck.gstatic.com"
-  - "clients3.google.com"
+    # Android / Google
+    - "connectivitycheck.gstatic.com"
+    - "clients3.google.com"
 
 # =========================
 # Dataplane configuration (for ImmortalWRT)

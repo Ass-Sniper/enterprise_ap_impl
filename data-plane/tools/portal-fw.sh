@@ -200,8 +200,8 @@ fi
 # 1.1) Bypass MACs from controller (JSON array)
 # ---------------------------------------------------------
 if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_MACS:-}" ]; then
-  if echo "$BYPASS_MACS" | jq -e 'type=="array"' >/dev/null 2>&1; then
-    echo "$BYPASS_MACS" | jq -r '.[]' | while read -r mac; do
+  if printf '%s' "$BYPASS_MACS" | jq -e 'type=="array"' >/dev/null 2>&1; then
+    printf '%s' "$BYPASS_MACS" | jq -r '.[]' | while read -r mac; do
       [ -n "$mac" ] || continue
       ipset -exist add "$IPSET_BYPASS_MAC" "$mac" timeout 0 || true
       log "event=bypass_ctrl_mac mac=${mac}"
@@ -212,11 +212,20 @@ if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_MACS:-}" ]; then
 fi
 
 # ---------------------------------------------------------
+# 1.2) Reconcile bypass IPs (runtime authoritative)
+# ---------------------------------------------------------
+if ipset list "$IPSET_BYPASS_IP" >/dev/null 2>&1; then
+  COUNT_BEFORE="$(ipset list "$IPSET_BYPASS_IP" | grep -c '^[0-9]')"
+  ipset flush "$IPSET_BYPASS_IP"
+  log "event=bypass_ip_flush count_before=${COUNT_BEFORE}"
+fi
+
+# ---------------------------------------------------------
 # 1.2) Bypass IPs from controller (JSON array)
 # ---------------------------------------------------------
 if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_IPS:-}" ]; then
-  if echo "$BYPASS_IPS" | jq -e 'type=="array"' >/dev/null 2>&1; then
-    echo "$BYPASS_IPS" | jq -r '.[]' | while read -r ip; do
+  if printf '%s' "$BYPASS_IPS" | jq -e 'type=="array"' >/dev/null 2>&1; then
+    printf '%s' "$BYPASS_IPS" | jq -r '.[]' | while read -r ip; do
       [ -n "$ip" ] || continue
       ipset -exist add "$IPSET_BYPASS_IP" "$ip" timeout 0 || true
       log "event=bypass_ctrl_ip ip=${ip}"
@@ -225,19 +234,36 @@ if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_IPS:-}" ]; then
     log "level=error event=bypass_ips_parse_failed raw=${BYPASS_IPS}"
   fi
 fi
+COUNT_AFTER="$(ipset list "$IPSET_BYPASS_IP" | grep -c '^[0-9]')"
+log "event=bypass_ip_apply_done count_after=${COUNT_AFTER}"
+
+
+# ---------------------------------------------------------
+# 1.3) Reconcile bypass DNS ipset (runtime authoritative)
+# ---------------------------------------------------------
+if ipset list "$IPSET_BYPASS_DNS" >/dev/null 2>&1; then
+  COUNT_BEFORE="$(ipset list "$IPSET_BYPASS_DNS" \
+    | awk '/Members:/ {f=1;next} f && NF {c++} END{print c+0}')"
+  ipset flush "$IPSET_BYPASS_DNS"
+  log "event=bypass_dns_flush count_before=${COUNT_BEFORE}"
+fi
 
 # ---------------------------------------------------------
 # 1.3) Bypass domains via dnsmasq -> ipset (OpenWrt correct way)
 # ---------------------------------------------------------
 if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_DOMAINS:-}" ]; then
-  if echo "$BYPASS_DOMAINS" | jq -e 'type=="array"' >/dev/null 2>&1; then
+  if printf '%s' "$BYPASS_DOMAINS" | jq -e 'type=="array"' >/dev/null 2>&1; then
     DNSMASQ_IPSET_DIR="/tmp/dnsmasq.d"
     DNSMASQ_IPSET_CONF="${DNSMASQ_IPSET_DIR}/portal-bypass-ipset.conf"
 
     mkdir -p "$DNSMASQ_IPSET_DIR"
+    # Truncates (or creates if missing) the file referenced by $DNSMASQ_IPSET_CONF
+    # using the no-op ":" command, effectively clearing its contents to an empty file without writing any data.
     : > "$DNSMASQ_IPSET_CONF"
 
-    echo "$BYPASS_DOMAINS" | jq -r '.[]' | while read -r raw; do
+    log "event=bypass_dns_conf_rebuild_start"
+
+    printf '%s' "$BYPASS_DOMAINS" | jq -r '.[]' | while read -r raw; do
       [ -n "$raw" ] || continue
 
       domain="$(normalize_domain "$raw")"
@@ -262,6 +288,8 @@ if [ "${BYPASS_ENABLED:-false}" = "true" ] && [ -n "${BYPASS_DOMAINS:-}" ]; then
     log "level=error event=bypass_domains_parse_failed raw=${BYPASS_DOMAINS}"
   fi
 fi
+COUNT_AFTER="$(ipset list "$IPSET_BYPASS_DNS" | grep -c '^[0-9]')"
+log "event=bypass_dns_apply_done count_after=${COUNT_AFTER}"
 
 # ---------------------------------------------------------
 # 2) NAT: DNS hijack chain
