@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Form, Request, Query
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, RedirectResponse
 import requests
 import os
 from fastapi.staticfiles import StaticFiles
@@ -11,6 +11,11 @@ CONTROLLER_URL = os.getenv("CONTROLLER_URL", "http://ap-controller:8443")
 app = FastAPI(title="Captive Portal")
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static")
+
+@app.get("/hotspot-detect.html")
+def apple_captive(request: Request):
+    print("iOS captive probe from", request.client.host)
+    return RedirectResponse(url="/", status_code=302)
 
 @app.get("/")
 def portal_page(request: Request):
@@ -73,3 +78,12 @@ def logout(payload: dict):
         return r.json()
     except requests.RequestException as e:
         return {"ok": False, "error": str(e)}
+
+
+@app.get("/{path:path}")
+def catch_all(path: str):
+    # 再次保险：避免误伤探测
+    if path in ("hotspot-detect.html", "generate_204", "ncsi.txt"):
+        return Response(status_code=204)
+
+    return RedirectResponse(url="/", status_code=302)
