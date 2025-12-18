@@ -61,6 +61,33 @@ www.msftconnecttest.com
 
 ---
 
+```mermaid
+sequenceDiagram
+    participant Win10 as Windows 10 Client
+    participant DNS as DNS Server (dnsmasq)
+    participant FW as Firewall (iptables)
+    participant MS as Microsoft Probe Server
+
+    Note over Win10, MS: 场景：你把 msftconnecttest.com 加入了 Bypass 列表
+    
+    Win10->>DNS: DNS Query: www.msftconnecttest.com
+    DNS-->>Win10: Response: 23.205.110.62 (真实 IP)
+    Note right of DNS: 同时该 IP 被自动加入 IPSET_BYPASS_DNS
+
+    Win10->>FW: HTTP GET /connecttest.txt (Target: 23.205.110.62)
+    
+    alt 当前错误的逻辑 (Forward ACCEPT)
+        FW->>MS: 直接转发流量 (因为匹配了 BYPASS_DNS 规则)
+        MS-->>Win10: HTTP 200 OK (内容: Microsoft Connect Test)
+        Note over Win10: 系统判定：网络已通，无需弹窗！
+    else 正确的逻辑 (Intercept & Redirect)
+        Note over FW: Filter 表不再放行该 IP
+        FW->>FW: NAT 表触发 DNAT 重定向到 Portal IP
+        FW-->>Win10: HTTP 302 Found (Location: http://portal:8080)
+        Note over Win10: 系统判定：发现强制主页，自动弹窗！
+    end
+```
+
 ## Apple (iOS / macOS)
 
 ### Detection Domains
