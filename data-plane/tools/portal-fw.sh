@@ -552,7 +552,12 @@ iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_BYPASS_MAC" src -j ACCEPT
 # Allow bypass IPs
 iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_BYPASS_IP" dst -j ACCEPT
 # Allow bypass Domains (domain-based bypass via DNS -> ipset)
-iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_BYPASS_DNS" dst -j ACCEPT
+# CRITICAL FIX: The following rule must be disabled to ensure captive portal detection.
+# Reason: Allowing forward traffic for $IPSET_BYPASS_DNS lets OS probes (e.g., Windows NCSI) 
+# reach the internet directly. When the client receives a '200 OK' from Microsoft instead 
+# of a '302 Redirect' from our portal, the login popup will NOT be triggered.
+#
+# iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_BYPASS_DNS" dst -j ACCEPT
 
 
 # Always allow reaching portal/controller IP (for login/heartbeat)
