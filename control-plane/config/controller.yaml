@@ -30,7 +30,8 @@ controller:
     # HMAC secret reference (do NOT store secrets in plain YAML)
     secret_ref: env:AUDIT_SECRET
     algo: hmac-sha256
-
+  # HMAC secret for portal URL signing
+  hmac_secret: env:PORTAL_HMAC_SECRET
 
 # =========================
 # Redis session backend
@@ -154,7 +155,7 @@ bypass:
 # Dataplane configuration (for ImmortalWRT)
 # =========================
 dataplane:
-  policy_version: 3
+  policy_version: 5
   portal_ip: 192.168.16.118
   lan_if: br-lan
   ipsets:

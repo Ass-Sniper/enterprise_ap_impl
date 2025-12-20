@@ -1,0 +1,102 @@
+/* 基础布局 */
+.portal-body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  background: #f5f7fb;
+  color: #1e293b;
+}
+
+.portal-container {
+  max-width: 420px;
+  margin: 8vh auto;
+  padding: 24px 28px;
+  background: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(2, 6, 23, 0.08);
+}
+
+.portal-title {
+  margin: 0 0 16px;
+  font-size: 20px;
+  font-weight: 600;
+  text-align: center;
+  color: #0f172a;
+}
+
+/* 表单与控件 */
+.portal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.portal-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.portal-input::placeholder {
+  color: #94a3b8;
+}
+
+.portal-input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.portal-button {
+  padding: 10px 12px;
+  border: none;
+  border-radius: 8px;
+  background: #6366f1;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.02s ease, background 0.2s ease, opacity 0.2s ease;
+}
+
+.portal-button:hover {
+  background: #5558f0;
+}
+
+.portal-button:active {
+  transform: translateY(1px);
+}
+
+/* 输出区 */
+.portal-output {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: #0b1220;
+  color: #e5e7eb;
+  border-radius: 8px;
+  min-height: 48px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 成功/错误态辅助类 */
+.portal-output.success {
+  background: #052814;
+  color: #dcfce7;
+  border: 1px solid #22c55e;
+}
+
+.portal-output.error {
+  background: #2b0b0b;
+  color: #fee2e2;
+  border: 1px solid #ef4444;
+}
+
+/* 响应式微调 */
+@media (max-width: 480px) {
+  .portal-container {
+    margin: 4vh 12px;
+    padding: 20px;
+  }
+}

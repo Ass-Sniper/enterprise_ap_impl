@@ -3,140 +3,92 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
-	"strings"
 
-	"ap-controller-go/internal/audit"
-	"ap-controller-go/internal/config"
 	"ap-controller-go/internal/policy"
 	"ap-controller-go/internal/roles"
+	"ap-controller-go/internal/security"
 	"ap-controller-go/internal/store"
-
-	_ "ap-controller-go/docs/openapi"
 
 	"github.com/go-chi/chi/v5"
 )
 
-func New(cfg *config.Config, st *store.Store, audit *audit.Logger, policyVersion int) *Server {
-	return &Server{cfg: cfg, st: st, audit: audit, policyVersion: policyVersion}
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func macNorm(m string) string {
-	return strings.ToLower(strings.TrimSpace(m))
-}
-
-func (s *Server) buildSessionResp(sess *store.SessionV2, ttl int) map[string]any {
-	// role -> profile -> attrs
-	role := sess.Role
-	roleDef, ok := s.cfg.Roles[role]
-	profileName := sess.Profile
-	if ok && profileName == "" {
-		profileName = roleDef.Profile
-	}
-	profile := s.cfg.Profiles[profileName]
-
-	return map[string]any{
-		"authorized":     true,
-		"role":           role,
-		"ttl":            ttl,
-		"policy_version": sess.PolicyVersion,
-		"profile": map[string]any{
-			"name":           profileName,
-			"vlan":           profile.VLAN,
-			"firewall_group": profile.FirewallGroup,
-		},
-	}
-}
-
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 
-	// Swagger MUST be registered first or anywhere on the SAME router
 	registerSwagger(r)
 
-	// @Summary 服务根状态
-	// @Description 返回服务运行状态
-	// @Tags System
-	// @Produce json
-	// @Success 200 {object} map[string]interface{} "status=ok"
-	// @Router / [get]
+	// ========================
+	// Public endpoints
+	// ========================
 	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{
-			"status": "ok",
-		})
+		writeJSON(w, 200, map[string]any{"status": "ok"})
 	})
 
-	// @Summary 健康检查
-	// @Description 检查与 Redis 的连接状态
-	// @Tags System
-	// @Produce json
-	// @Success 200 {object} map[string]interface{} "status、redis_ping"
-	// @Router /healthz [get]
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		err := s.st.Ping(ctx)
+		err := s.st.Ping(r.Context())
 		writeJSON(w, 200, map[string]any{
 			"status":     "ok",
 			"redis_ping": err == nil,
 		})
 	})
 
+	// ========================
+	// Portal login (NO HMAC)
+	// ========================
 	r.Post("/portal/login", s.portalLogin)
-	r.Post("/portal/heartbeat", s.portalHeartbeat)
-	r.Post("/portal/logout", s.portalLogout)
 
-	r.Get("/portal/status/{mac}", s.portalStatus)
-	r.Post("/portal/batch_status", s.portalBatchStatus)
+	// ========================
+	// Protected APIs (HMAC required)
+	// ========================
+	r.Route("/", func(pr chi.Router) {
+		// 🔐 强制 HMAC 校验
+		pr.Use(security.PortalAuthMiddleware(s.st))
 
-	// @Summary 获取策略运行时信息
-	// @Description 返回当前策略运行时配置快照
-	// @Tags Policy
-	// @Produce json
-	// @Success 200 {object} map[string]interface{}
-	// @Router /api/v1/policy/runtime [get]
-	r.Get("/api/v1/policy/runtime", policy.RuntimeHandler(s.cfg))
+		// 🔑 新增：auth_request 专用 verify
+		pr.Post("/portal/context/verify", s.portalContextVerify)
+
+		// Portal APIs (post-login)
+		pr.Post("/portal/heartbeat", s.portalHeartbeat)
+		pr.Post("/portal/logout", s.portalLogout)
+
+		// Ops APIs
+		pr.Get("/portal/status/{mac}", s.portalStatus)
+		pr.Post("/portal/batch_status", s.portalBatchStatus)
+
+		// Policy runtime
+		pr.Get("/api/v1/policy/runtime", policy.RuntimeHandler(s.cfg))
+	})
+
 	return r
 }
 
-// portalLogin handles portal login.
-// @Summary 门户登录授权
-// @Description 根据 MAC / SSID / Auth 等信息创建或更新会话
-// @Tags Portal
-// @Accept json
-// @Produce json
-// @Param body body LoginReq true "登录请求体"
-// @Success 200 {object} map[string]interface{} "authorized=true 时返回会话信息"
-// @Failure 400 {object} ErrorResponse "bad_json"
-// @Failure 422 {object} ErrorResponse "mac_required"
-// @Router /portal/login [post]
+// -------------------------------------------------------------------
+// Portal Handlers (Context-based)
+// -------------------------------------------------------------------
+
+// portalLogin handles portal login with trusted context.
 func (s *Server) portalLogin(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var req LoginReq
+	var req PortalContextReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, 400, map[string]any{"authorized": false, "error": "bad_json"})
 		return
 	}
-	req.MAC = macNorm(req.MAC)
-	if req.MAC == "" {
+
+	mac := macNorm(req.Client.MAC)
+	if mac == "" {
 		writeJSON(w, 422, map[string]any{"authorized": false, "error": "mac_required"})
 		return
 	}
 
-	// decide role by rules
 	decision := roles.DecideRole(s.cfg, map[string]string{
-		"mac":      req.MAC,
-		"ssid":     req.SSID,
-		"auth":     req.Auth,
-		"ap_id":    req.APID,
-		"radio_id": req.RadioID,
-		"ip":       req.IP,
+		"mac":      mac,
+		"ssid":     req.Wireless.SSID,
+		"ap_id":    req.Access.APID,
+		"radio_id": req.Wireless.RadioID,
+		"ip":       req.Client.IP,
+		"os":       req.Client.OS,
 	}, "guest")
 
 	role := decision.Role
@@ -146,165 +98,138 @@ func (s *Server) portalLogin(w http.ResponseWriter, r *http.Request) {
 
 	sess := store.SessionV2{
 		Schema:        2,
-		MAC:           req.MAC,
+		MAC:           mac,
 		Role:          role,
 		Profile:       roleDef.Profile,
 		PolicyVersion: s.policyVersion,
 	}
+
 	sess.Rule.Name = decision.MatchedRule
 	sess.Rule.Priority = decision.Priority
-	sess.AP.APID = req.APID
-	sess.AP.SSID = req.SSID
-	sess.AP.RadioID = req.RadioID
+	sess.AP.APID = req.Access.APID
+	sess.AP.SSID = req.Wireless.SSID
+	sess.AP.RadioID = req.Wireless.RadioID
 	sess.Attrs.VLAN = profile.VLAN
 	sess.Attrs.FirewallGroup = profile.FirewallGroup
-	sess.Auth.Method = req.Auth
-	sess.Auth.Source = req.Source
+	sess.Auth.Method = "portal"
+	sess.Auth.Source = req.Meta.Source
 
 	_ = s.st.SetSession(ctx, sess, ttl)
 
 	s.audit.Write(map[string]any{
-		"event":          "portal.login",
-		"mac":            req.MAC,
-		"authorized":     true,
-		"role":           role,
-		"ttl":            ttl,
-		"policy_version": s.policyVersion,
-		"profile":        roleDef.Profile,
-		"vlan":           profile.VLAN,
-		"firewall_group": profile.FirewallGroup,
-		"rule":           decision.MatchedRule,
-		"ap_id":          req.APID,
-		"ssid":           req.SSID,
-		"radio_id":       req.RadioID,
-		"source":         req.Source,
-		"result":         "ok",
+		"event":      "portal.login",
+		"mac":        mac,
+		"role":       role,
+		"ttl":        ttl,
+		"rule":       decision.MatchedRule,
+		"ap_id":      req.Access.APID,
+		"ssid":       req.Wireless.SSID,
+		"radio_id":   req.Wireless.RadioID,
+		"source":     req.Meta.Source,
+		"policy_ver": s.policyVersion,
+		"result":     "ok",
 	})
 
-	// return session resp
-	sess2, ttl2, _ := s.st.GetSessionFull(ctx, req.MAC)
+	sess2, ttl2, _ := s.st.GetSessionFull(ctx, mac)
 	if sess2 == nil {
 		writeJSON(w, 200, map[string]any{"authorized": false})
 		return
 	}
-	writeJSON(w, 200, s.buildSessionResp(sess2, ttl2))
+
+	// issue JWT (NEW)
+	token, exp, err := s.jwtIssuer.Issue(ctx, mac)
+	if err != nil {
+		writeJSON(w, 500, map[string]any{
+			"authorized": false,
+			"error":      "issue_token_failed",
+		})
+		return
+	}
+
+	writeJSON(w, 200, map[string]any{
+		"authorized": true,
+		"session":    s.buildSessionResp(sess2, ttl2),
+		"token": map[string]any{
+			"access_token": token,
+			"expires_in":   exp,
+			"token_type":   "Bearer",
+		},
+	})
+
 }
 
-// portalHeartbeat refreshes session TTL.
-// @Summary 门户心跳
-// @Description 刷新会话 TTL，返回最新会话信息
-// @Tags Portal
-// @Accept json
-// @Produce json
-// @Param body body HeartbeatReq true "心跳请求体"
-// @Success 200 {object} map[string]interface{} "会话信息"
-// @Failure 400 {object} ErrorResponse "bad_json"
-// @Failure 422 {object} ErrorResponse "mac_required"
-// @Router /portal/heartbeat [post]
+// portalHeartbeat refreshes session TTL using context.
 func (s *Server) portalHeartbeat(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var req HeartbeatReq
+	var req PortalContextReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, 400, map[string]any{"authorized": false, "error": "bad_json"})
 		return
 	}
-	req.MAC = macNorm(req.MAC)
-	if req.MAC == "" {
+
+	mac := macNorm(req.Client.MAC)
+	if mac == "" {
 		writeJSON(w, 422, map[string]any{"authorized": false, "error": "mac_required"})
 		return
 	}
 
-	sess, _, err := s.st.GetSessionFull(ctx, req.MAC)
+	sess, _, err := s.st.GetSessionFull(ctx, mac)
 	if err != nil || sess == nil {
-		s.audit.Write(map[string]any{
-			"event":      "portal.heartbeat",
-			"mac":        req.MAC,
-			"authorized": false,
-			"source":     req.Source,
-			"result":     "not_found",
-		})
 		writeJSON(w, 200, map[string]any{"authorized": false})
 		return
 	}
 
-	// refresh with the profile TTL (not current ttl)
 	roleDef := s.cfg.Roles[sess.Role]
 	profile := s.cfg.Profiles[roleDef.Profile]
-	ok, _ := s.st.Refresh(ctx, req.MAC, profile.SessionTTL)
+
+	ok, _ := s.st.Refresh(ctx, mac, profile.SessionTTL)
 	if !ok {
-		s.audit.Write(map[string]any{
-			"event":      "portal.heartbeat",
-			"mac":        req.MAC,
-			"authorized": false,
-			"source":     req.Source,
-			"result":     "expired_after_refresh",
-		})
 		writeJSON(w, 200, map[string]any{"authorized": false})
 		return
 	}
 
-	// return refreshed ttl
-	sess2, ttl2, _ := s.st.GetSessionFull(ctx, req.MAC)
-	s.audit.Write(map[string]any{
-		"event":          "portal.heartbeat",
-		"mac":            req.MAC,
-		"authorized":     true,
-		"role":           sess.Role,
-		"ttl":            ttl2,
-		"policy_version": sess.PolicyVersion,
-		"source":         req.Source,
-		"result":         "ok",
-	})
+	sess2, ttl2, _ := s.st.GetSessionFull(ctx, mac)
 	writeJSON(w, 200, s.buildSessionResp(sess2, ttl2))
 }
 
-// @Summary 门户登出
-// @Description 删除指定 MAC 的会话
-// @Tags Portal
-// @Accept json
-// @Produce json
-// @Param body body LogoutReq true "登出请求体"
-// @Success 200 {object} map[string]interface{} "authorized=false"
-// @Failure 400 {object} ErrorResponse "bad_json"
-// @Failure 422 {object} ErrorResponse "mac_required"
-// @Router /portal/logout [post]
+// portalLogout deletes session.
 func (s *Server) portalLogout(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	var req LogoutReq
+	var req PortalContextReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, 400, map[string]any{"authorized": false, "error": "bad_json"})
 		return
 	}
-	req.MAC = macNorm(req.MAC)
-	if req.MAC == "" {
+
+	mac := macNorm(req.Client.MAC)
+	if mac == "" {
 		writeJSON(w, 422, map[string]any{"authorized": false, "error": "mac_required"})
 		return
 	}
 
-	existed, _ := s.st.Delete(ctx, req.MAC)
+	existed, _ := s.st.Delete(ctx, mac)
 
 	s.audit.Write(map[string]any{
-		"event":      "portal.logout",
-		"mac":        req.MAC,
-		"authorized": false,
-		"result":     map[bool]string{true: "ok", false: "not_found"}[existed],
+		"event":   "portal.logout",
+		"mac":     mac,
+		"existed": existed,
+		"source":  req.Meta.Source,
+		"result":  map[bool]string{true: "ok", false: "not_found"}[existed],
 	})
 
 	writeJSON(w, 200, map[string]any{"authorized": false})
 }
 
-// @Summary 门户状态查询
-// @Description 查询单个 MAC 的授权状态
-// @Tags Portal
-// @Produce json
-// @Param mac path string true "客户端 MAC 地址" example(aa:bb:cc:dd:ee:ff)
-// @Success 200 {object} map[string]interface{} "会话状态"
-// @Router /portal/status/{mac} [get]
+// -------------------------------------------------------------------
+// Ops / Status APIs (unchanged)
+// -------------------------------------------------------------------
+
 func (s *Server) portalStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	mac := macNorm(chi.URLParam(r, "mac"))
+
 	sess, ttl, _ := s.st.GetSessionFull(ctx, mac)
 	if sess == nil {
 		writeJSON(w, 200, map[string]any{
@@ -314,18 +239,10 @@ func (s *Server) portalStatus(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+
 	writeJSON(w, 200, s.buildSessionResp(sess, ttl))
 }
 
-// @Summary 批量门户状态查询
-// @Description 批量查询多个 MAC 的会话状态
-// @Tags Portal
-// @Accept json
-// @Produce json
-// @Param body body BatchReq true "批量状态请求体"
-// @Success 200 {object} map[string]interface{} "results 数组"
-// @Failure 400 {object} ErrorResponse "bad_json"
-// @Router /portal/batch_status [post]
 func (s *Server) portalBatchStatus(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -340,7 +257,7 @@ func (s *Server) portalBatchStatus(w http.ResponseWriter, r *http.Request) {
 		Authorized    bool           `json:"authorized"`
 		Role          *string        `json:"role,omitempty"`
 		TTL           *int           `json:"ttl,omitempty"`
-		PolicyVersion *int           `json:"policy_version,omitempty"`
+		PolicyVersion *string        `json:"policy_version,omitempty"`
 		Profile       map[string]any `json:"profile,omitempty"`
 	}
 
@@ -353,12 +270,12 @@ func (s *Server) portalBatchStatus(w http.ResponseWriter, r *http.Request) {
 			out = append(out, Item{MAC: m, Authorized: false})
 			continue
 		}
+
 		role := sess.Role
 		pv := sess.PolicyVersion
 		ttl2 := ttl
 
 		resp := s.buildSessionResp(sess, ttl2)
-		// flatten into expected structure
 		profile := resp["profile"].(map[string]any)
 
 		out = append(out, Item{
@@ -374,11 +291,59 @@ func (s *Server) portalBatchStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"results": out})
 }
 
-// helper: parse policy version string env, optional
-func ParsePolicyVersion(s string) int {
-	i, _ := strconv.Atoi(strings.TrimSpace(s))
-	if i < 0 {
-		return 0
+// ---------------------------------------------------
+// Portal Context Verify (auth_request backend)
+// ---------------------------------------------------
+//
+// This endpoint is called by portal-signer via nginx auth_request.
+// It must be:
+//   - side-effect free
+//   - header driven
+//   - status-code only
+func (s *Server) portalContextVerify(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// --------------------------------------------------
+	// 1. Internal-only guard
+	// --------------------------------------------------
+	if r.Header.Get("X-Portal-Internal") != "1" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
 	}
-	return i
+
+	// --------------------------------------------------
+	// 2. Extract original request info
+	// --------------------------------------------------
+	method := r.Header.Get("X-Original-Method")
+	uri := r.Header.Get("X-Original-URI")
+
+	if method == "" || uri == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	// --------------------------------------------------
+	// 3. Get client MAC from context (set by middleware)
+	// --------------------------------------------------
+	macAny := ctx.Value(security.CtxKeyClientMAC)
+	mac, ok := macAny.(string)
+	if !ok || mac == "" {
+		// Not logged in
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// --------------------------------------------------
+	// 4. Session existence check (v0 semantics)
+	// --------------------------------------------------
+	sess, _, err := s.st.GetSessionFull(ctx, mac)
+	if err != nil || sess == nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	// --------------------------------------------------
+	// 5. Allow (NO BODY)
+	// --------------------------------------------------
+	w.WriteHeader(http.StatusNoContent)
 }

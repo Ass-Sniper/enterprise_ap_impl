@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
@@ -27,6 +28,17 @@ func Load(path string) (*Config, error) {
 	if cfg.Dataplane.PortalIP == "" {
 		return nil, fmt.Errorf("dataplane.portal_ip must be set")
 	}
+
+	// Resolve controller HMAC secret
+	if cfg.Controller.HMACSecret != "" {
+		secret, err := ResolveSecret(cfg.Controller.HMACSecret)
+		if err != nil {
+			return nil, fmt.Errorf("controller.hmac_secret: %w", err)
+		}
+		cfg.Controller.HMACSecret = secret
+		log.Printf("controller hmac secret loaded: %v", cfg.Controller.HMACSecret != "")
+	}
+
 	return &cfg, nil
 }
 

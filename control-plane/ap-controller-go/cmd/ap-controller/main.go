@@ -11,6 +11,7 @@ import (
 	"ap-controller-go/internal/audit"
 	"ap-controller-go/internal/config"
 	httpapi "ap-controller-go/internal/http"
+	"ap-controller-go/internal/security"
 	"ap-controller-go/internal/store"
 )
 
@@ -48,10 +49,25 @@ func main() {
 		log.Printf("redis ping failed: %v", err)
 	}
 
-	// policy version: recommended to pass via env or hot reload later
-	pv := httpapi.ParsePolicyVersion(os.Getenv("POLICY_VERSION"))
+	// --------------------------------------------------
+	// 🔐 init portal hmac security (NEW)
+	// --------------------------------------------------
+	ks, err := security.LoadPortalHMACKeySet()
+	if err != nil {
+		log.Fatalf("load portal hmac keyset failed: %v", err)
+	}
+	security.InitPortalHMAC(ks)
 
-	srv := httpapi.New(cfg, st, aud, pv)
+	// --------------------------------------------------
+	// init JWT issuer (NEW)
+	// --------------------------------------------------
+	jwtSecret := []byte("dev-jwt-secret-change-me") // ⚠️ 先用固定值
+	jwtTTL := 15 * time.Minute
+	jwtIssuer := security.NewJWTIssuer(jwtSecret, jwtTTL)
+
+	pv := fmt.Sprintf("%v", cfg.Dataplane.PolicyVersion)
+
+	srv := httpapi.New(cfg, st, aud, pv, jwtIssuer)
 
 	addr := fmt.Sprintf("%s:%d", cfg.Controller.Bind.Host, cfg.Controller.Bind.Port)
 	log.Printf("starting %s on %s", cfg.Controller.Name, addr)

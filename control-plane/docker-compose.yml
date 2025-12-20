@@ -1,12 +1,106 @@
-
+# version: "3.9"
 
 services:
+  # ==================================================
+  # 基础设施组件
+  # ==================================================
+
   redis:
     image: redis:7-alpine
     container_name: cp-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
+    networks:
+      - control-plane-net
+
+  mysql:
+    image: mysql:8.0
+    container_name: radius-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: radiusroot
+      MYSQL_DATABASE: radius
+      MYSQL_USER: radius
+      MYSQL_PASSWORD: radiuspass
+    volumes:
+      - radius-mysql-data:/var/lib/mysql
+    networks:
+      - control-plane-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uradius", "-pradiuspass"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ==================================================
+  # RADIUS 相关
+  # ==================================================
+
+  freeradius:
+    image: freeradius/freeradius-server:latest-3.2-alpine
+    container_name: freeradius
+    depends_on:
+      - mysql
+    restart: unless-stopped
+    command: ["freeradius", "-X"]
+    ports:
+      - "1812:1812/udp"
+      - "1813:1813/udp"
+    volumes:
+      # =============================================================================
+      # 自定义raddb 配置（先用官方的）
+      # - radius-stack/freeradius:/opt/etc/raddb:ro
+
+      # =============================================================================
+      # FreeRADIUS 官方 raddb 配置来源说明
+      #
+      # 本目录 (/radius-stack/freeradius.base/raddb) 并非手写，
+      # 而是【直接从官方 Docker 镜像中导出的完整配置骨架】。
+      #
+      # 导出命令如下（可复现 / 可审计）：
+      #
+      #   docker run --rm \
+      #     freeradius/freeradius-server:latest-3.2-alpine \
+      #     sh -c 'mkdir -p /tmp/raddb \
+      #            && cp -a /opt/etc/raddb/* /tmp/raddb/ \
+      #            && tar -C /tmp -cf - raddb' \
+      #   | tar -C radius-stack/freeradius.base -xf -
+      #
+      # 说明：
+      # - Alpine 版 FreeRADIUS 中，真实配置目录为 /opt/etc/raddb
+      #   (/etc/raddb 只是一个 symlink)
+      # - 该命令将官方 raddb “原样导出”，作为配置基线 (baseline)
+      # - 后续只允许在此基础上做 overlay 修改（clients / sql / policy 等）
+      # - 禁止裁剪 raddb 骨架，否则会导致 modules / sites / listen 丢失
+      #
+      # =============================================================================      
+      - ./radius-stack/freeradius.base/raddb:/opt/etc/raddb:ro
+    networks:
+      - control-plane-net
+
+  daloradius:
+    image: frauhottelmann/daloradius-docker:1.2
+    container_name: daloradius
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_DATABASE: radius
+      MYSQL_USER: radius
+      MYSQL_PASSWORD: radiuspass
+    ports:
+      - "8081:80"
+    volumes:
+      - ./radius-stack/supervisor/supervisor-dalocron.conf:/etc/supervisor/conf.d/supervisor-dalocron.conf:ro
+    networks:
+      - control-plane-net
+
+  # ==================================================
+  # 自研逻辑组件
+  # ==================================================
 
   ap-controller:
     image: ap-controller-go:latest
@@ -14,21 +108,38 @@ services:
     restart: unless-stopped
     depends_on:
       - redis
+      - freeradius
     ports:
       - "8443:8443"
     volumes:
-      # 🔑 统一使用 control-plane/config/controller.yaml
       - ./config/controller.yaml:/app/config/controller.yaml:ro
+      - /opt/portal/secrets/portal_hmac_secret:/run/secrets/portal_hmac_secret:ro
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
       - AUDIT_SECRET=${AUDIT_SECRET:-dev-secret}
+      - RADIUS_HOST=freeradius
+      - RADIUS_PORT=1812
+      - RADIUS_SECRET=testing123
+    networks:
+      - control-plane-net
 
-  captive-portal:
-    build: ./captive-portal/portal-server
-    container_name: captive-portal
-    restart: unless-stopped
-    depends_on:
-      - ap-controller
+  # ==================================================
+  # captive-portal-server
+  # ==================================================
+  captive-portal-server:
+    build: ./captive-portal/portal-server-cpp
+    container_name: captive-portal-server
+    environment:
+      - PORTAL_PORT=8080
+      - WEB_ROOT=/app/web
+      - PORTAL_HMAC_KEY=devkey
     ports:
       - "8080:8080"
+    networks:
+      - control-plane-net
+
+
+networks:
+  control-plane-net:
+
+volumes:
+  radius-mysql-data:

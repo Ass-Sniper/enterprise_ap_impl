@@ -25,6 +25,7 @@ type Controller struct {
 		SecretRef string `yaml:"secret_ref"`
 		Algo      string `yaml:"algo"`
 	} `yaml:"audit"`
+	HMACSecret string `yaml:"hmac_secret"`
 }
 
 type Redis struct {

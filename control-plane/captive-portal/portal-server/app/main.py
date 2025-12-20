@@ -1,89 +1,134 @@
-from fastapi import FastAPI, Form, Request, Query
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pathlib import Path
-from fastapi.responses import JSONResponse, Response, RedirectResponse
-import requests
+import httpx
 import os
-from fastapi.staticfiles import StaticFiles
+from typing import Dict, Any
 
-CONTROLLER_URL = os.getenv("CONTROLLER_URL", "http://ap-controller:8443")
+app = FastAPI()
+templates = Jinja2Templates(directory="app/templates")
 
-app = FastAPI(title="Captive Portal")
-templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
-app.mount("/static", StaticFiles(directory=str(Path(__file__).resolve().parent / "static")), name="static")
+# Controller endpoint
+CONTROLLER_BASE = os.getenv("CONTROLLER_BASE", "http://ap-controller:8443")
 
-@app.get("/hotspot-detect.html")
-def apple_captive(request: Request):
-    print("iOS captive probe from", request.client.host)
-    return RedirectResponse(url="/", status_code=302)
+# -------------------------------------------------------------------
+# Helpers
+# -------------------------------------------------------------------
 
-@app.get("/")
-def portal_page(request: Request):
-    return templates.TemplateResponse("portal.html", {"request": request})
-
-def _format_ttl(ttl: int | None) -> str:
-    if ttl is None or ttl < 0:
-        return "N/A"
-    hours, remainder = divmod(ttl, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    parts = []
-    if hours > 0:
-        parts.append(f"{hours}h")
-    if minutes > 0:
-        parts.append(f"{minutes}m")
-    if seconds > 0 or not parts:
-        parts.append(f"{seconds}s")
-    return " ".join(parts)
-
-@app.post("/login")
-def login(request: Request, mac: str = Form(...)):
+def _format_ttl(ttl: Any) -> str:
+    if not ttl:
+        return "unknown"
     try:
-        r = requests.post(
-            f"{CONTROLLER_URL}/portal/login",
-            json={"mac": mac, "ip": "0.0.0.0"},
-            headers={"Accept": "application/json"},
-            timeout=5,
+        ttl = int(ttl)
+    except Exception:
+        return "unknown"
+
+    if ttl < 60:
+        return f"{ttl}s"
+    if ttl < 3600:
+        return f"{ttl // 60}m"
+    return f"{ttl // 3600}h"
+
+
+def get_trusted_context(request: Request) -> Dict[str, Any]:
+    """
+    Build trusted context from headers injected by gateway / nginx.
+    Portal Server does NOT perform any security verification.
+    """
+    h = request.headers
+
+    required = ["X-Client-MAC", "X-Client-IP"]
+    missing = [k for k in required if not h.get(k)]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"missing required headers: {', '.join(missing)}",
         )
-        r.raise_for_status()
-        try:
-            data = r.json()
-            return templates.TemplateResponse(
-                "result.html",
-                {
-                    "request": request,
-                    "mac": mac,
-                    "result": data,
-                    "ttl_human": _format_ttl(data.get("ttl")),
-                },
+
+    return {
+        "client": {
+            "mac": h.get("X-Client-MAC"),
+            "ip": h.get("X-Client-IP"),
+            "os": h.get("X-Client-OS"),
+        },
+        "wireless": {
+            "ssid": h.get("X-Client-SSID"),
+            "radio_id": h.get("X-Client-Radio-ID"),
+        },
+        "access": {
+            "ap_id": h.get("X-Portal-AP-ID"),
+            "vlan_id": h.get("X-Portal-VLAN-ID"),
+        },
+        "meta": {
+            "source": "portal-server",
+        },
+    }
+
+
+async def controller_post(path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    url = f"{CONTROLLER_BASE}{path}"
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        resp = await client.post(url, json=payload)
+        if resp.status_code != 200:
+            raise HTTPException(
+                status_code=resp.status_code,
+                detail=f"controller error: {resp.text}",
             )
-        except ValueError:
-            return {"ok": False, "status": r.status_code, "body": r.text}
-    except requests.RequestException as e:
-        return {"ok": False, "error": str(e)}
+        return resp.json()
 
-@app.get("/status")
-def status(mac: str = Query(..., min_length=1)):
+
+# -------------------------------------------------------------------
+# Routes
+# -------------------------------------------------------------------
+
+@app.get("/", response_class=HTMLResponse)
+async def portal_index(request: Request):
+    return templates.TemplateResponse(
+        "portal.html",
+        {"request": request},
+    )
+
+
+@app.post("/login", response_class=HTMLResponse)
+async def portal_login(request: Request):
     try:
-        r = requests.get(f"{CONTROLLER_URL}/portal/status/{mac}", timeout=5)
-        r.raise_for_status()
-        return r.json()
-    except requests.RequestException as e:
-        return {"ok": False, "error": str(e)}
+        ctx = get_trusted_context(request)
+    except HTTPException as e:
+        return templates.TemplateResponse(
+            "result.html",
+            {
+                "request": request,
+                "authorized": False,
+                "error": e.detail,
+                "ttl_human": "n/a",
+            },
+        )
 
-@app.post("/logout")
-def logout(payload: dict):
-    try:
-        r = requests.post(f"{CONTROLLER_URL}/portal/logout", json=payload, timeout=5)
-        r.raise_for_status()
-        return r.json()
-    except requests.RequestException as e:
-        return {"ok": False, "error": str(e)}
+    # Forward trusted context to controller
+    data = await controller_post("/portal/login", ctx)
+
+    authorized = data.get("authorized", False)
+    session = data.get("session", {})
+    ttl = session.get("ttl")
+
+    return templates.TemplateResponse(
+        "result.html",
+        {
+            "request": request,
+            "authorized": authorized,
+            "session": session,
+            "ttl_human": _format_ttl(ttl),
+        },
+    )
 
 
-@app.get("/{path:path}")
-def catch_all(path: str):
-    # 再次保险：避免误伤探测
-    if path in ("hotspot-detect.html", "generate_204", "ncsi.txt"):
-        return Response(status_code=204)
+@app.get("/hotspot-detect.html", response_class=HTMLResponse)
+async def hotspot_detect():
+    # iOS / macOS captive portal detection
+    return HTMLResponse("Success")
 
-    return RedirectResponse(url="/", status_code=302)
+
+@app.get("/generate_204")
+async def generate_204():
+    # Android / HarmonyOS captive portal detection
+    return HTMLResponse(status_code=204)

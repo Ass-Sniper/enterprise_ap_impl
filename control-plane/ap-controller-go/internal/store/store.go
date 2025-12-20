@@ -3,33 +3,10 @@ package store
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
-
-	"ap-controller-go/internal/config"
 
 	"github.com/redis/go-redis/v9"
 )
-
-func New(cfg *config.Config, password string) *Store {
-	addr := fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port)
-	rdb := redis.NewClient(&redis.Options{
-		Addr:     addr,
-		Password: password,
-		DB:       cfg.Redis.DB,
-	})
-	return &Store{
-		cfg:    cfg,
-		rdb:    rdb,
-		prefix: cfg.Redis.Prefix,
-	}
-}
-
-func (s *Store) key(mac string) string { return s.prefix + mac }
-
-func (s *Store) Ping(ctx context.Context) error {
-	return s.rdb.Ping(ctx).Err()
-}
 
 func (s *Store) SetSession(ctx context.Context, sess SessionV2, ttlSec int) error {
 	now := time.Now().Unix()
@@ -84,4 +61,15 @@ func (s *Store) Refresh(ctx context.Context, mac string, ttlSec int) (bool, erro
 func (s *Store) Delete(ctx context.Context, mac string) (bool, error) {
 	n, err := s.rdb.Del(ctx, s.key(mac)).Result()
 	return n > 0, err
+}
+
+// SetNX sets a key only if it does not already exist.
+// It is used for security purposes such as nonce / replay protection.
+//
+// Returns:
+//   - true  if the key was set successfully
+//   - false if the key already exists
+func (s *Store) SetNX(ctx context.Context,
+	key string, value string, ttl time.Duration) (bool, error) {
+	return s.rdb.SetNX(ctx, key, value, ttl).Result()
 }

@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2329
 # =========================================================
 # ImmortalWRT Captive Portal data-plane init script
 #

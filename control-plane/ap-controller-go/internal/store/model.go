@@ -19,7 +19,7 @@ type SessionV2 struct {
 	Role    string `json:"role"`
 	Profile string `json:"profile"`
 
-	PolicyVersion int `json:"policy_version"`
+	PolicyVersion string `json:"policy_version"`
 
 	Rule struct {
 		Name     string `json:"name,omitempty"`

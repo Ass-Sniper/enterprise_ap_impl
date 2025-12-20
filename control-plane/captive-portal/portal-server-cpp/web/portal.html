@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Portal Login</title>
+  <link rel="stylesheet" href="/static/portal.css"/>
+</head>
+<body class="portal-body">
+  <main class="portal-container">
+    <h2 class="portal-title">Portal Login</h2>
+    <form id="f" class="portal-form">
+      <input name="username" placeholder="username" value="testuser" class="portal-input"/><br/>
+      <input name="password" placeholder="password" value="testpass" type="password" class="portal-input"/><br/>
+      <input name="ip" placeholder="ip (optional)" class="portal-input"/><br/>
+      <input name="mac" placeholder="mac (optional)" class="portal-input"/><br/>
+      <button type="submit" class="portal-button">Login</button>
+    </form>
+    <pre id="out" class="portal-output"></pre>
+  </main>
+
+  <script src="/static/portal.js"></script>
+</body>
+</html>
