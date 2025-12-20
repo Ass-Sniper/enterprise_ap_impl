@@ -103,6 +103,9 @@ services:
   # ==================================================
 
   ap-controller:
+    build:
+      context: ./ap-controller-go
+      dockerfile: Dockerfile
     image: ap-controller-go:latest
     container_name: ap-controller
     restart: unless-stopped
