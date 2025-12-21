@@ -1,0 +1,60 @@
+#
+# FreeRADIUS virtual server: default
+# Portal + SQL authentication model
+#
+
+# ------------------------------------------------------------
+# Listen on RADIUS ports
+# ------------------------------------------------------------
+listen {
+    type = auth
+    ipaddr = *
+    port = 1812
+}
+
+listen {
+    type = acct
+    ipaddr = *
+    port = 1813
+}
+
+# ------------------------------------------------------------
+# Virtual Server
+# ------------------------------------------------------------
+server default {
+
+authorize {
+    preprocess
+    chap
+    mschap
+
+    #
+    # SQL is the single source of truth
+    #
+    sql
+
+    expiration
+    logintime
+}
+
+authenticate {
+    #
+    # Portal / SQL model uses PAP
+    #
+    Auth-Type PAP {
+        pap
+    }
+}
+
+post-auth {
+    #
+    # Log authentication result
+    #
+    sql
+}
+
+accounting {
+    sql
+}
+
+}
