@@ -1,0 +1,61 @@
+set dotenv-load := false
+set shell := ["bash", "-cu"]
+
+compose := "docker compose"
+
+# ------------------------------------------------------------
+# Help
+# ------------------------------------------------------------
+help:
+  @just --list
+
+# ------------------------------------------------------------
+# Global lifecycle
+# ------------------------------------------------------------
+up:
+  {{compose}} up -d
+
+down:
+  {{compose}} down
+
+build:
+  {{compose}} build
+
+build-nc:
+  {{compose}} build --no-cache
+
+ps:
+  {{compose}} ps
+
+# ------------------------------------------------------------
+# Per-service lifecycle
+# ------------------------------------------------------------
+restart svc:
+  {{compose}} stop {{svc}} || true
+  {{compose}} rm -f {{svc}} || true
+  {{compose}} build {{svc}}
+  {{compose}} up -d {{svc}}
+
+restart-nc svc:
+  {{compose}} stop {{svc}} || true
+  {{compose}} rm -f {{svc}} || true
+  {{compose}} build --no-cache {{svc}}
+  {{compose}} up -d {{svc}}
+
+logs svc:
+  {{compose}} logs -f {{svc}}
+
+sh svc:
+  {{compose}} exec {{svc}} sh
+
+bash svc:
+  {{compose}} exec {{svc}} bash
+
+# ------------------------------------------------------------
+# FreeRADIUS helpers
+# ------------------------------------------------------------
+radius-test:
+  radtest testuser password 127.0.0.1 0 testing123
+
+radius-debug:
+  {{compose}} exec freeradius freeradius -X
