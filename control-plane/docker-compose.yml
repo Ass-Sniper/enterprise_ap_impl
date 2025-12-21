@@ -38,6 +38,8 @@ services:
   # ==================================================
 
   freeradius:
+    build:
+      context: ./radius-stack/freeradius
     image: freeradius/freeradius-server:latest-3.2-alpine
     container_name: freeradius
     depends_on:
@@ -47,13 +49,19 @@ services:
     ports:
       - "1812:1812/udp"
       - "1813:1813/udp"
-    volumes:
+    # volumes:
       # =============================================================================
-      # 自定义raddb 配置（先用官方的）
+      # 自定义 raddb 配置（运行时目录）
+      #
+      # ⚠️ 说明：
+      # - runtime 配置应来自 radius-stack/freeradius/raddb
+      # - 通过 Dockerfile COPY 进入镜像
+      # - 不再通过 volume 方式覆盖
+      #
       # - radius-stack/freeradius:/opt/etc/raddb:ro
 
       # =============================================================================
-      # FreeRADIUS 官方 raddb 配置来源说明
+      # FreeRADIUS 官方 raddb 配置来源说明（baseline，仅用于参考）
       #
       # 本目录 (/radius-stack/freeradius.base/raddb) 并非手写，
       # 而是【直接从官方 Docker 镜像中导出的完整配置骨架】。
@@ -74,8 +82,10 @@ services:
       # - 后续只允许在此基础上做 overlay 修改（clients / sql / policy 等）
       # - 禁止裁剪 raddb 骨架，否则会导致 modules / sites / listen 丢失
       #
-      # =============================================================================      
-      - ./radius-stack/freeradius.base/raddb:/opt/etc/raddb:ro
+      # ⚠️ baseline 仅用于 diff / 审计 / 升级对照，不再直接 mount 进运行容器
+      #
+      # - ./radius-stack/freeradius.base/raddb:/opt/etc/raddb:ro
+      # =============================================================================
     networks:
       - control-plane-net
 
@@ -99,10 +109,11 @@ services:
       - control-plane-net
 
   # ==================================================
-  # 自研逻辑组件
+  # Controller（按需启动）
   # ==================================================
 
   ap-controller:
+    profiles: ["controller"]
     build:
       context: ./ap-controller-go
       dockerfile: Dockerfile
@@ -126,10 +137,13 @@ services:
       - control-plane-net
 
   # ==================================================
-  # captive-portal-server
+  # Portal（按需启动）
   # ==================================================
   captive-portal-server:
-    build: ./captive-portal/portal-server-cpp
+    profiles: ["portal"]
+    build:
+      context: ./captive-portal
+      dockerfile: Dockerfile  
     container_name: captive-portal-server
     environment:
       - PORTAL_PORT=8080
