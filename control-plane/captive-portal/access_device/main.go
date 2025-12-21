@@ -13,10 +13,10 @@ import (
 )
 
 const (
-	radiusServer  = "127.0.0.1:1812" // 认证端口
-	acctServer    = "127.0.0.1:1813" // 计费端口
-	sharedSecret  = "testing123"     // 与 FreeRADIUS 配置一致
-	nasIdentifier = "enterprise-ap-01"
+	radiusServer  = "172.19.0.4:1812" // 认证端口
+	acctServer    = "172.19.0.4:1813" // 计费端口
+	sharedSecret  = "testing123"      // 与 FreeRADIUS 配置一致
+	nasIdentifier = "docker-nas-01"   // NAS 标识符
 )
 
 // 步骤 9 & 10: 发起 RADIUS 认证请求
@@ -64,6 +64,24 @@ func startAccounting(username string) error {
 	return err
 }
 
+// stopRadiusAccounting 发起计费停止请求 (Logout)
+func stopRadiusAccounting(username string) error {
+	packet := radius.New(radius.CodeAccountingRequest, []byte(sharedSecret))
+	rfc2865.UserName_SetString(packet, username)
+	rfc2865.NASIdentifier_SetString(packet, nasIdentifier)
+
+	// 设置 Acct-Status-Type 为 Stop (2)
+	rfc2866.AcctStatusType_Set(packet, rfc2866.AcctStatusType_Value_Stop)
+
+	log.Printf("[RADIUS-Acct] 发送 Accounting-Request (Stop): 用户=%s", username)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := radius.Exchange(ctx, packet, acctServer)
+	return err
+}
+
 func portalAuthHandler(w http.ResponseWriter, r *http.Request) {
 	// 步骤 8: 接收浏览器提交的参数 (支持 POST 或 302 跳转后的 GET)
 	username := r.FormValue("username")
@@ -104,14 +122,64 @@ func portalAuthHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("用户 %s 已完成 AAA 全流程。\n", username)
 }
 
-func main() {
-	http.HandleFunc("/portal_auth", portalAuthHandler)
+// portalDeauthHandler 处理用户下线请求 (Step: Deauthentication)
+func portalDeauthHandler(w http.ResponseWriter, r *http.Request) {
+	// 获取要下线的用户名
+	username := r.FormValue("username")
+	if username == "" {
+		http.Error(w, "Deauth failed: username is required", http.StatusBadRequest)
+		return
+	}
 
-	// 模拟提供一个简单的登录页入口
-	http.HandleFunc("/index.html", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "<html><body><h1>Access Device</h1><p>Please wait for Portal redirect...</p></body></html>")
-	})
+	log.Printf("[NAS] 收到下线请求 (Deauth)，用户: %s", username)
+
+	// 1. 发起 RADIUS Accounting-Stop (停止计费)
+	// 在 RADIUS 协议中，下线必须伴随计费停止报文
+	if err := stopRadiusAccounting(username); err != nil {
+		log.Printf("[Error] RADIUS Accounting-Stop 失败: %v", err)
+		// 即使计费报文失败，通常也要继续执行本地下线逻辑
+	}
+
+	// 2. 执行本地准入控制清理 (如：iptables -D ...)
+	// 这里模拟清理该 IP 的放行规则
+	log.Printf("[NAS] 已从内核中清除用户 %s 的放行规则", username)
+
+	// 3. 告知 Portal 执行成功或重定向
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `
+		<html>
+		<head><meta http-equiv="refresh" content="2;url=http://127.0.0.1:8081/portal"></head>
+		<body>
+			<div style="text-align:center; margin-top:50px;">
+				<h2 style="color: orange;">您已成功退出登录</h2>
+				<p>正在断开网络连接并返回登录页...</p>
+			</div>
+		</body>
+		</html>
+	`)
+}
+
+// 在 main() 中注册:
+// http.HandleFunc("/logout", logoutHandler)
+
+func redirectToPortal(w http.ResponseWriter, r *http.Request) {
+	// 路径必须是 /portal 而不是 /login，因为 /login 是处理 POST 的
+	portalServerURL := "http://127.0.0.1:8081/portal"
+	redirectURL := fmt.Sprintf("%s?nas_id=%s&user_ip=%s", portalServerURL, nasIdentifier, "127.0.0.1")
+	http.Redirect(w, r, redirectURL, http.StatusFound)
+}
+
+func main() {
+	// 处理认证请求 (Step 8)
+	http.HandleFunc("/portal_auth", portalAuthHandler)
+	http.HandleFunc("/portal_deauth", portalDeauthHandler)
+
+	// 模拟受保护的资源入口
+	// 任何访问 /index.html 或根路径的请求都将被重定向
+	http.HandleFunc("/index.html", redirectToPortal)
+	http.HandleFunc("/", redirectToPortal)
 
 	fmt.Println("接入设备 (NAS) 模拟器运行在 :8080...")
+	log.Printf("认证重定向功能已开启 -> 目标: http://172.19.0.4:8081/login")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
