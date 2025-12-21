@@ -3,6 +3,7 @@
 # ============================================================
 
 COMPOSE := docker compose
+DOCKER_CLEAN_SCRIPT := ./scripts/docker-clean.sh
 
 .DEFAULT_GOAL := help
 
@@ -19,6 +20,9 @@ help:
 	@echo "  make build                  Build all services"
 	@echo "  make build-nc               Build all services (no cache)"
 	@echo ""
+	@echo "Clean:"
+	@echo "  make docker-clean           Clean docker layer and reclaim dangling space"
+	@echo ""
 	@echo "Service lifecycle:"
 	@echo "  make restart-<svc>          Stop/rm/build/up service"
 	@echo "  make restart-nc-<svc>       Same as above, no cache"
@@ -26,7 +30,7 @@ help:
 	@echo "Logs & exec:"
 	@echo "  make logs-<svc>             Tail logs"
 	@echo "  make sh-<svc>               Exec shell"
-	@echo ""
+	@echo ""	
 	@echo "Examples:"
 	@echo "  make restart-freeradius"
 	@echo "  make restart-nc-freeradius"
@@ -50,6 +54,9 @@ build-nc:
 
 ps:
 	$(COMPOSE) ps
+
+docker-clean:
+	$(OCKER_CLEAN_SCRIPT)
 
 # ------------------------------------------------------------
 # Per-service lifecycle

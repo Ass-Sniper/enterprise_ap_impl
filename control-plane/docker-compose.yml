@@ -39,7 +39,8 @@ services:
 
   freeradius:
     build:
-      context: ./radius-stack/freeradius
+      context: ./radius-stack
+      dockerfile: Dockerfile
     image: freeradius/freeradius-server:latest-3.2-alpine
     container_name: freeradius
     depends_on:
@@ -87,7 +88,8 @@ services:
       # - ./radius-stack/freeradius.base/raddb:/opt/etc/raddb:ro
       # =============================================================================
     networks:
-      - control-plane-net
+      control-plane-net:
+        ipv4_address: 172.19.0.4
 
   daloradius:
     image: frauhottelmann/daloradius-docker:1.2
@@ -106,7 +108,8 @@ services:
     volumes:
       - ./radius-stack/supervisor/supervisor-dalocron.conf:/etc/supervisor/conf.d/supervisor-dalocron.conf:ro
     networks:
-      - control-plane-net
+      control-plane-net:
+        ipv4_address: 172.19.0.5
 
   # ==================================================
   # Controller（按需启动）
@@ -134,7 +137,8 @@ services:
       - RADIUS_PORT=1812
       - RADIUS_SECRET=testing123
     networks:
-      - control-plane-net
+      control-plane-net:
+        ipv4_address: 172.19.0.6
 
   # ==================================================
   # Portal（按需启动）
@@ -152,11 +156,16 @@ services:
     ports:
       - "8080:8080"
     networks:
-      - control-plane-net
-
+      control-plane-net:
+        ipv4_address: 172.19.0.7
 
 networks:
   control-plane-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.19.0.0/24
+          gateway: 172.19.0.1
 
 volumes:
   radius-mysql-data:
