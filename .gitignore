@@ -12,6 +12,9 @@
 # Binaries from 'go install' or 'go build'
 # if compiled into the project root
 #*/
+# 忽略特定的二进制文件
+**/access_device/access_device
+**/portal-server-go/portal-server-go
 
 # Go package cache
 # This directory is machine-specific and should not be committed.
