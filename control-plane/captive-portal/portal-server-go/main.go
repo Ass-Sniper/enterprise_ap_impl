@@ -1,88 +1,133 @@
 package main
 
 import (
-	"fmt"
+	"bytes"
+	"encoding/json"
 	"log"
 	"net/http"
-	"time"
+
+	"portal-server-go/web"
+	"portal-server-go/web/api"
+	"portal-server-go/web/i18n"
 )
 
 const (
-	/*
-	   系统架构示意:
-	   [Client] -> [NAS:8080] -> [Portal:8081]
-	      ^           |             |
-	      +-----------+-------------+
-	*/
-	nasAuthPort = "8080"
-	serverPort  = ":8081"
-	nasIP       = "172.19.0.1"
+	serverAddr      = ":8080"
+	accessDeviceURL = "http://172.19.0.1:9000/portal_auth"
 )
 
-func handlePortal(w http.ResponseWriter, r *http.Request) {
-	clientIP := r.URL.Query().Get("user_ip")
-	nasID := r.URL.Query().Get("nas_id")
+func main() {
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds | log.Lshortfile)
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, `
-		<html>
-		<head><title>Portal Login</title><script src="https://cdn.tailwindcss.com"></script></head>
-		<body class="bg-gray-100 flex items-center justify-center min-h-screen">
-			<form action="/login" method="post" class="bg-white p-8 rounded-lg shadow-md w-80">
-				<h2 class="text-xl font-bold mb-4 text-center">网络准入登录</h2>
-				<input type="hidden" name="nas_id" value="%s">
-				<input type="hidden" name="client_ip" value="%s">
-				<input type="text" name="username" placeholder="用户名" class="w-full mb-3 p-2 border rounded">
-				<input type="password" name="password" placeholder="密码" class="w-full mb-4 p-2 border rounded">
-				<button type="submit" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700">登录</button>
-			</form>
-		</body>
-		</html>
-	`, nasID, clientIP)
+	renderer, err := web.NewRenderer("web/templates")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			// 展示登录页
+			lang := i18n.DetectLang(r)
+			renderer.RenderLogin(w, web.LoginData{
+				BasePage: web.BasePage{
+					Title: i18n.T(lang, i18n.TitleLogin),
+				},
+			})
+
+		case http.MethodPost:
+			// 处理登录提交
+			handleLogin(w, r, renderer)
+
+		default:
+			http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	log.Printf("[PORTAL] UI listening on %s", serverAddr)
+	log.Fatal(http.ListenAndServe(serverAddr, nil))
 }
 
-func handleLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Redirect(w, r, "/portal", http.StatusSeeOther)
+// ========================
+// Handlers
+// ========================
+
+func handleLogin(w http.ResponseWriter, r *http.Request, renderer *web.Renderer) {
+	lang := i18n.DetectLang(r)
+	if err := r.ParseForm(); err != nil {
+		renderer.RenderLogin(w, web.LoginData{
+			BasePage: web.BasePage{
+				Title: i18n.T(lang, i18n.TitleLogin),
+			},
+			Error: i18n.T(lang, i18n.ErrInvalidParams),
+		})
 		return
 	}
 
 	username := r.FormValue("username")
 	password := r.FormValue("password")
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
-	// 1. 模拟验证逻辑
-	if username == "" || password == "" {
-		w.WriteHeader(http.StatusUnauthorized)
-		fmt.Fprintf(w, FailurePageTemplate, CommonCSS, "用户名和密码不能为空", FailureJS)
+	req := api.AuthRequest{
+		Username: username,
+		Password: password,
+		UserIP:   r.RemoteAddr,
+	}
+
+	body, _ := json.Marshal(req)
+
+	log.Printf("handleLogin req: %v", req)
+	log.Printf("handleLogin body: %v", body)
+	log.Printf("handleLogin POST to accessDeviceURL: %s", accessDeviceURL)
+	resp, err := http.Post(
+		accessDeviceURL,
+		"application/json",
+		bytes.NewReader(body),
+	)
+	log.Printf("handleLogin POST complete err: %v", err)
+	if err != nil {
+		renderer.RenderLogin(w, web.LoginData{
+			BasePage: web.BasePage{
+				Title: i18n.T(lang, i18n.TitleLogin),
+			},
+			Username: username,
+			Error:    i18n.T(lang, i18n.ErrAuthServiceDown),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	var ar api.AuthResponse
+	log.Printf("handleLogin Decode response")
+	if err := json.NewDecoder(resp.Body).Decode(&ar); err != nil {
+		log.Printf("handleLogin Decoded response: %v", ar)
+		renderer.RenderLogin(w, web.LoginData{
+			BasePage: web.BasePage{
+				Title: i18n.T(lang, i18n.TitleLogin),
+			},
+			Username: username,
+			Error:    i18n.T(lang, i18n.ErrAuthRespParseFailed),
+		})
 		return
 	}
 
-	// 2. 验证成功：生成 Token 并组装页面
-	token := fmt.Sprintf("auth_token_%d", time.Now().Unix())
-	authURL := fmt.Sprintf("http://%s:%s/portal_auth", nasIP, nasAuthPort)
-	deauthURL := fmt.Sprintf("http://%s:%s/portal_deauth", nasIP, nasAuthPort)
-
-	log.Printf("[Portal] 用户 %s 登录成功, 下发 Token: %s", username, token)
-
-	fmt.Fprintf(w, SuccessPageTemplate,
-		CommonCSS, // %1
-		username,  // %2
-		authURL,   // %3
-		username,  // %4
-		token,     // %5
-		deauthURL, // %6
-		username,  // %7
-		SuccessJS, // %8
-	)
-}
-
-func main() {
-	http.HandleFunc("/portal", handlePortal)
-	http.HandleFunc("/login", handleLogin)
-
-	log.Printf("Portal Server 运行在 %s", serverPort)
-	if err := http.ListenAndServe(serverPort, nil); err != nil {
-		log.Fatal(err)
+	if !ar.Success {
+		renderer.RenderLogin(w, web.LoginData{
+			BasePage: web.BasePage{
+				Title: i18n.T(lang, i18n.TitleLogin),
+			},
+			Username: username,
+			Error:    ar.Message,
+		})
+		return
 	}
+
+	renderer.RenderResult(w, web.ResultData{
+		BasePage: web.BasePage{
+			Title:         i18n.T(lang, i18n.TitleLogin),
+			RedirectURL:   ar.RedirectURL,
+			RedirectDelay: 2,
+		},
+		Success: true,
+		Message: i18n.T(lang, i18n.MsgAuthSuccessRedirect),
+	})
 }
