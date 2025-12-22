@@ -54,7 +54,22 @@ func main() {
 
 func handleLogin(w http.ResponseWriter, r *http.Request, renderer *web.Renderer) {
 	lang := i18n.DetectLang(r)
+
+	log.Printf(
+		"[PORTAL_UI] handleLogin start method=%s remote=%s",
+		r.Method,
+		r.RemoteAddr,
+	)
+
+	// ============================
+	// 1️⃣ Parse Form
+	// ============================
 	if err := r.ParseForm(); err != nil {
+		log.Printf(
+			"[PORTAL_UI][ERROR] parse form failed err=%v",
+			err,
+		)
+
 		renderer.RenderLogin(w, web.LoginData{
 			BasePage: web.BasePage{
 				Title: i18n.T(lang, i18n.TitleLogin),
@@ -67,24 +82,61 @@ func handleLogin(w http.ResponseWriter, r *http.Request, renderer *web.Renderer)
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
+	log.Printf(
+		"[PORTAL_UI] login submit user=%q password.len=%d",
+		username,
+		len(password),
+	)
+
+	// ============================
+	// 2️⃣ Build AuthRequest
+	// ============================
 	req := api.AuthRequest{
 		Username: username,
 		Password: password,
 		UserIP:   r.RemoteAddr,
 	}
 
-	body, _ := json.Marshal(req)
+	body, err := json.Marshal(req)
+	if err != nil {
+		log.Printf(
+			"[PORTAL_UI][ERROR] marshal AuthRequest failed user=%q err=%v",
+			username,
+			err,
+		)
 
-	log.Printf("handleLogin req: %v", req)
-	log.Printf("handleLogin body: %v", body)
-	log.Printf("handleLogin POST to accessDeviceURL: %s", accessDeviceURL)
+		renderer.RenderLogin(w, web.LoginData{
+			BasePage: web.BasePage{
+				Title: i18n.T(lang, i18n.TitleLogin),
+			},
+			Username: username,
+			Error:    i18n.T(lang, i18n.ErrAuthRespParseFailed),
+		})
+		return
+	}
+
+	log.Printf(
+		"[PORTAL_UI] POST /portal_auth -> %s payload=%s",
+		accessDeviceURL,
+		string(body),
+	)
+
+	// ============================
+	// 3️⃣ Call AccessDevice (NAC)
+	// ============================
 	resp, err := http.Post(
 		accessDeviceURL,
 		"application/json",
 		bytes.NewReader(body),
 	)
-	log.Printf("handleLogin POST complete err: %v", err)
+
 	if err != nil {
+		log.Printf(
+			"[PORTAL_UI][ERROR] POST access device failed user=%q err=%v",
+			username,
+			err,
+		)
+
 		renderer.RenderLogin(w, web.LoginData{
 			BasePage: web.BasePage{
 				Title: i18n.T(lang, i18n.TitleLogin),
@@ -96,10 +148,22 @@ func handleLogin(w http.ResponseWriter, r *http.Request, renderer *web.Renderer)
 	}
 	defer resp.Body.Close()
 
+	log.Printf(
+		"[PORTAL_UI] access device response status=%d",
+		resp.StatusCode,
+	)
+
+	// ============================
+	// 4️⃣ Decode NAC Response
+	// ============================
 	var ar api.AuthResponse
-	log.Printf("handleLogin Decode response")
 	if err := json.NewDecoder(resp.Body).Decode(&ar); err != nil {
-		log.Printf("handleLogin Decoded response: %v", ar)
+		log.Printf(
+			"[PORTAL_UI][ERROR] decode AuthResponse failed user=%q err=%v",
+			username,
+			err,
+		)
+
 		renderer.RenderLogin(w, web.LoginData{
 			BasePage: web.BasePage{
 				Title: i18n.T(lang, i18n.TitleLogin),
@@ -110,7 +174,25 @@ func handleLogin(w http.ResponseWriter, r *http.Request, renderer *web.Renderer)
 		return
 	}
 
+	log.Printf(
+		"[PORTAL_UI] auth response user=%q success=%v policy=%s strategy=%s redirect=%s",
+		username,
+		ar.Success,
+		ar.Policy,
+		ar.Strategy,
+		ar.RedirectURL,
+	)
+
+	// ============================
+	// 5️⃣ Auth Failed
+	// ============================
 	if !ar.Success {
+		log.Printf(
+			"[PORTAL_UI][DENY] user=%q msg=%q",
+			username,
+			ar.Message,
+		)
+
 		renderer.RenderLogin(w, web.LoginData{
 			BasePage: web.BasePage{
 				Title: i18n.T(lang, i18n.TitleLogin),
@@ -120,6 +202,15 @@ func handleLogin(w http.ResponseWriter, r *http.Request, renderer *web.Renderer)
 		})
 		return
 	}
+
+	// ============================
+	// 6️⃣ Auth Success → Result Page
+	// ============================
+	log.Printf(
+		"[PORTAL_UI][SUCCESS] user=%q redirect=%s delay=2s",
+		username,
+		ar.RedirectURL,
+	)
 
 	renderer.RenderResult(w, web.ResultData{
 		BasePage: web.BasePage{
