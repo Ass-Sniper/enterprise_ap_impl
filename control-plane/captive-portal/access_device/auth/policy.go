@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"context"
 	"log"
 )
 
@@ -25,10 +24,6 @@ type Policy struct {
 
 	// 运行时字段（不序列化）
 	Source PolicySource `yaml:"-" json:"-"`
-}
-
-type PolicyOverride interface {
-	Get(ctx context.Context, username string) (*Policy, error)
 }
 
 func logPolicy(user string, p *Policy) {
