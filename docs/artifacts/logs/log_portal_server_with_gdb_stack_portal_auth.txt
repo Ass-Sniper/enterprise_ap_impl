@@ -1,0 +1,75 @@
+
+kay@kay-vm:portal-server-go$
+kay@kay-vm:portal-server-go$
+kay@kay-vm:portal-server-go$ go build .
+kay@kay-vm:portal-server-go$
+kay@kay-vm:portal-server-go$
+kay@kay-vm:portal-server-go$ ./portal-server-go
+2025/12/22 21:57:37.072819 renderer.go:21: [RENDER] templates loaded from web/templates
+2025/12/22 21:57:37.072892 renderer.go:23: [RENDER] template registered: login.html
+2025/12/22 21:57:37.072899 renderer.go:23: [RENDER] template registered: login
+2025/12/22 21:57:37.072902 renderer.go:23: [RENDER] template registered: result.html
+2025/12/22 21:57:37.072915 renderer.go:23: [RENDER] template registered: result
+2025/12/22 21:57:37.072936 renderer.go:23: [RENDER] template registered: layout.html
+2025/12/22 21:57:37.072944 renderer.go:23: [RENDER] template registered: layout
+2025/12/22 21:57:37.073035 main.go:47: [PORTAL] UI listening on :8080
+^C
+kay@kay-vm:portal-server-go$ ./portal-server-go
+2025/12/22 22:00:32.640823 renderer.go:21: [RENDER] templates loaded from web/templates
+2025/12/22 22:00:32.640918 renderer.go:23: [RENDER] template registered: result.html
+2025/12/22 22:00:32.640923 renderer.go:23: [RENDER] template registered: result
+2025/12/22 22:00:32.640926 renderer.go:23: [RENDER] template registered: layout.html
+2025/12/22 22:00:32.640929 renderer.go:23: [RENDER] template registered: layout
+2025/12/22 22:00:32.640932 renderer.go:23: [RENDER] template registered: login.html
+2025/12/22 22:00:32.640934 renderer.go:23: [RENDER] template registered: login
+2025/12/22 22:00:32.640962 main.go:47: [PORTAL] UI listening on :8080
+2025/12/22 22:00:41.485598 renderer.go:42: [RENDER] RenderLogin
+2025/12/22 22:00:41.485634 renderer.go:31: [RENDER] execute template=login data=web.LoginData {BasePage:{Title:网络认证登录 RedirectURL: RedirectDelay:0} Username: Error:}
+2025/12/22 22:00:51.455800 renderer.go:42: [RENDER] RenderLogin
+2025/12/22 22:00:51.455830 renderer.go:31: [RENDER] execute template=login data=web.LoginData {BasePage:{Title:网络认证登录 RedirectURL: RedirectDelay:0} Username: Error:}
+2025/12/22 22:00:53.182552 renderer.go:42: [RENDER] RenderLogin
+2025/12/22 22:00:53.182582 renderer.go:31: [RENDER] execute template=login data=web.LoginData {BasePage:{Title:网络认证登录 RedirectURL: RedirectDelay:0} Username: Error:}
+2025/12/22 22:01:15.201608 main.go:58: [PORTAL_UI] handleLogin start method=POST remote=192.168.100.1:7491
+2025/12/22 22:01:15.201811 main.go:85: [PORTAL_UI] login submit user="testuser" password.len=8
+2025/12/22 22:01:15.201850 main.go:118: [PORTAL_UI] POST /portal_auth -> http://172.19.0.1:9000/portal_auth payload={"username":"testuser","password":"testpass","user_ip":"192.168.100.1:7491"}
+2025/12/22 22:01:15.205728 main.go:151: [PORTAL_UI] access device response status=200
+2025/12/22 22:01:15.206730 main.go:177: [PORTAL_UI] auth response user="testuser" success=false policy= strategy= redirect=
+2025/12/22 22:01:15.206957 main.go:190: [PORTAL_UI][DENY] user="testuser" msg="该认证方式尚未开放"
+2025/12/22 22:01:15.207227 renderer.go:42: [RENDER] RenderLogin
+2025/12/22 22:01:15.207404 renderer.go:31: [RENDER] execute template=login data=web.LoginData {BasePage:{Title:网络认证登录 RedirectURL: RedirectDelay:0} Username:testuser Error:该认证方式尚未开放}
+2025/12/22 22:01:15.762743 renderer.go:42: [RENDER] RenderLogin
+2025/12/22 22:01:15.762785 renderer.go:31: [RENDER] execute template=login data=web.LoginData {BasePage:{Title:网络认证登录 RedirectURL: RedirectDelay:0} Username: Error:}
+2025/12/22 22:04:05.416913 main.go:58: [PORTAL_UI] handleLogin start method=POST remote=192.168.100.1:7491
+2025/12/22 22:04:05.416964 main.go:85: [PORTAL_UI] login submit user="testuser" password.len=8
+2025/12/22 22:04:05.416982 main.go:118: [PORTAL_UI] POST /portal_auth -> http://172.19.0.1:9000/portal_auth payload={"username":"testuser","password":"testpass","user_ip":"192.168.100.1:7491"}
+2025/12/22 22:04:05.419479 main.go:151: [PORTAL_UI] access device response status=200
+2025/12/22 22:04:05.419604 main.go:177: [PORTAL_UI] auth response user="testuser" success=false policy= strategy= redirect=
+2025/12/22 22:04:05.419620 main.go:190: [PORTAL_UI][DENY] user="testuser" msg="该认证方式尚未开放"
+2025/12/22 22:04:05.419631 renderer.go:42: [RENDER] RenderLogin
+2025/12/22 22:04:05.419637 renderer.go:31: [RENDER] execute template=login data=web.LoginData {BasePage:{Title:网络认证登录 RedirectURL: RedirectDelay:0} Username:testuser Error:该认证方式尚未开放}
+2025/12/22 22:04:06.029390 renderer.go:42: [RENDER] RenderLogin
+2025/12/22 22:04:06.029428 renderer.go:31: [RENDER] execute template=login data=web.LoginData {BasePage:{Title:网络认证登录 RedirectURL: RedirectDelay:0} Username: Error:}
+2025/12/22 22:34:45.554223 main.go:58: [PORTAL_UI] handleLogin start method=POST remote=192.168.100.1:2676
+2025/12/22 22:34:45.554286 main.go:85: [PORTAL_UI] login submit user="testuser" password.len=8
+2025/12/22 22:34:45.554327 main.go:118: [PORTAL_UI] POST /portal_auth -> http://172.19.0.1:9000/portal_auth payload={"username":"testuser","password":"testpass","user_ip":"192.168.100.1:2676"}
+2025/12/22 22:34:58.810567 main.go:151: [PORTAL_UI] access device response status=200
+2025/12/22 22:34:58.810697 main.go:177: [PORTAL_UI] auth response user="testuser" success=false policy= strategy= redirect=
+2025/12/22 22:34:58.810722 main.go:190: [PORTAL_UI][DENY] user="testuser" msg="auth service error"
+2025/12/22 22:34:58.810730 renderer.go:42: [RENDER] RenderLogin
+2025/12/22 22:34:58.810744 renderer.go:31: [RENDER] execute template=login data=web.LoginData {BasePage:{Title:网络认证登录 RedirectURL: RedirectDelay:0} Username:testuser Error:auth service error}
+2025/12/22 22:35:00.595702 renderer.go:42: [RENDER] RenderLogin
+2025/12/22 22:35:00.595730 renderer.go:31: [RENDER] execute template=login data=web.LoginData {BasePage:{Title:网络认证登录 RedirectURL: RedirectDelay:0} Username: Error:}
+2025/12/22 22:36:48.810838 main.go:58: [PORTAL_UI] handleLogin start method=POST remote=192.168.100.1:2676
+2025/12/22 22:36:48.810874 main.go:85: [PORTAL_UI] login submit user="testuser" password.len=8
+2025/12/22 22:36:48.810886 main.go:118: [PORTAL_UI] POST /portal_auth -> http://172.19.0.1:9000/portal_auth payload={"username":"testuser","password":"testpass","user_ip":"192.168.100.1:2676"}
+2025/12/22 22:36:48.852055 main.go:151: [PORTAL_UI] access device response status=200
+2025/12/22 22:36:48.852217 main.go:177: [PORTAL_UI] auth response user="testuser" success=true policy=default strategy=pap redirect=https://www.bing.com
+2025/12/22 22:36:48.852233 main.go:209: [PORTAL_UI][SUCCESS] user="testuser" redirect=https://www.bing.com delay=2s
+2025/12/22 22:36:48.852243 renderer.go:48: [RENDER] RenderResult success=true
+2025/12/22 22:36:48.852249 renderer.go:31: [RENDER] execute template=result data=web.ResultData {BasePage:{Title:网络认证登录 RedirectURL:https://www.bing.com RedirectDelay:2} Success:true Message:认证成功，正在跳转…}
+2025/12/22 22:36:49.645932 renderer.go:42: [RENDER] RenderLogin
+2025/12/22 22:36:49.645954 renderer.go:31: [RENDER] execute template=login data=web.LoginData {BasePage:{Title:网络认证登录 RedirectURL: RedirectDelay:0} Username: Error:}
+^C
+kay@kay-vm:portal-server-go$
+kay@kay-vm:portal-server-go$
+kay@kay-vm:portal-server-go$

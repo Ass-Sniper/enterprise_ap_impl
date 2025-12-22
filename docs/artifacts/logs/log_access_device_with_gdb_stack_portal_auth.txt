@@ -1,0 +1,204 @@
+kay@kay-vm:access_device$
+kay@kay-vm:access_device$
+kay@kay-vm:access_device$
+kay@kay-vm:access_device$ make
+==> go mod tidy
+go mod tidy
+==> go clean -cache
+go clean -cache
+==> go build -tags pap -o access_device ./cmd/access_device
+go build -tags "pap" -o access_device ./cmd/access_device
+kay@kay-vm:access_device$
+kay@kay-vm:access_device$
+kay@kay-vm:access_device$ file access_device
+access_device: ELF 64-bit LSB executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=bf906325d4da65fb1f58df0a9987a759101f0521, with debug_info, not stripped
+kay@kay-vm:access_device$
+kay@kay-vm:access_device$
+kay@kay-vm:access_device$ gdb ./access_device
+GNU gdb (Ubuntu 9.2-0ubuntu1~20.04.2) 9.2
+Copyright (C) 2020 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<http://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./access_device...
+warning: File "/usr/local/go/src/runtime/runtime-gdb.py" auto-loading has been declined by your `auto-load safe-path' set to "$debugdir:$datadir/auto-load".
+To enable execution of this file add
+        add-auto-load-safe-path /usr/local/go/src/runtime/runtime-gdb.py
+line to your configuration file "/home/kay/.gdbinit".
+To completely disable this security protection add
+        set auto-load safe-path /
+line to your configuration file "/home/kay/.gdbinit".
+For more information about this security protection see the
+"Auto-loading safe path" section in the GDB manual.  E.g., run from the shell:
+        info "(gdb)Auto-loading safe path"
+(gdb) q
+kay@kay-vm:access_device$
+kay@kay-vm:access_device$
+kay@kay-vm:access_device$ nm access_device | grep Install
+00000000006b0d00 T access_device/auth/plugins/pap.(*Plugin).Install
+00000000006b0da0 T access_device/auth/plugins/pap.(*Plugin).Install.func1
+kay@kay-vm:access_device$
+kay@kay-vm:access_device$
+kay@kay-vm:access_device$
+kay@kay-vm:access_device$ gdb ./access_device
+GNU gdb (Ubuntu 9.2-0ubuntu1~20.04.2) 9.2
+Copyright (C) 2020 Free Software Foundation, Inc.
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>
+This is free software: you are free to change and redistribute it.
+There is NO WARRANTY, to the extent permitted by law.
+Type "show copying" and "show warranty" for details.
+This GDB was configured as "x86_64-linux-gnu".
+Type "show configuration" for configuration details.
+For bug reporting instructions, please see:
+<http://www.gnu.org/software/gdb/bugs/>.
+Find the GDB manual and other documentation resources online at:
+    <http://www.gnu.org/software/gdb/documentation/>.
+
+For help, type "help".
+Type "apropos word" to search for commands related to "word"...
+Reading symbols from ./access_device...
+warning: File "/usr/local/go/src/runtime/runtime-gdb.py" auto-loading has been declined by your `auto-load safe-path' set to "$debugdir:$datadir/auto-load".
+To enable execution of this file add
+        add-auto-load-safe-path /usr/local/go/src/runtime/runtime-gdb.py
+line to your configuration file "/home/kay/.gdbinit".
+To completely disable this security protection add
+        set auto-load safe-path /
+line to your configuration file "/home/kay/.gdbinit".
+For more information about this security protection see the
+"Auto-loading safe path" section in the GDB manual.  E.g., run from the shell:
+        info "(gdb)Auto-loading safe path"
+(gdb) b access_device/auth/plugins/pap.(*Plugin).Install
+Breakpoint 1 at 0x6b0d00: file /home/kay/codebase/enterprise_ap_impl/control-plane/captive-portal/access_device/auth/plugins/pap/plugin.go, line 16.
+(gdb) b access_device/app.(*RadiusPAPAuth).RadiusPAP
+Breakpoint 2 at 0x6af0a0: file /home/kay/codebase/enterprise_ap_impl/control-plane/captive-portal/access_device/app/radius.go, line 28.
+(gdb) r
+Starting program: /home/kay/codebase/enterprise_ap_impl/control-plane/captive-portal/access_device/access_device
+[Thread debugging using libthread_db enabled]
+Using host libthread_db library "/lib/x86_64-linux-gnu/libthread_db.so.1".
+[New Thread 0x7fffb12fc700 (LWP 435767)]
+[New Thread 0x7fffb0abb700 (LWP 435768)]
+[New Thread 0x7fffabfff700 (LWP 435769)]
+[New Thread 0x7fffab7fe700 (LWP 435770)]
+2025/12/22 21:56:20.789671 api_auth.go:29: [BOOT] build PortalServer
+2025/12/22 21:56:20.789733 api_auth.go:34: [BOOT] init SessionManager
+2025/12/22 21:56:20.789739 api_auth.go:40: [BOOT] init StrategyStore
+2025/12/22 21:56:20.789743 api_auth.go:46: [BOOT] init Auth Dependencies
+2025/12/22 21:56:20.789756 api_auth.go:55: [BOOT] install auth plugins: 1
+2025/12/22 21:56:20.789762 api_auth.go:57: [BOOT] plugin install: pap
+
+Thread 1 "access_device" hit Breakpoint 1, access_device/auth/plugins/pap.(*Plugin).Install (
+    p=0xad2f00 <runtime.zerobase>, store=0xc00009e4c0, deps=0xc00009c320)
+    at /home/kay/codebase/enterprise_ap_impl/control-plane/captive-portal/access_device/auth/plugins/pap/plugin.go:16
+16      func (p *Plugin) Install(store *auth.StrategyStore, deps *auth.Dependencies) {
+(gdb) bt
+#0  access_device/auth/plugins/pap.(*Plugin).Install (p=0xad2f00 <runtime.zerobase>, store=0xc00009e4c0,
+    deps=0xc00009c320)
+    at /home/kay/codebase/enterprise_ap_impl/control-plane/captive-portal/access_device/auth/plugins/pap/plugin.go:16
+#1  0x00000000006ac916 in access_device/app.BuildPortalServer (rdb=0xc0000dd5e0, ~r0=<optimized out>)
+    at /home/kay/codebase/enterprise_ap_impl/control-plane/captive-portal/access_device/app/api_auth.go:58
+#2  0x00000000006b103b in main.main ()
+    at /home/kay/codebase/enterprise_ap_impl/control-plane/captive-portal/access_device/cmd/access_device/main.go:34
+(gdb) c
+Continuing.
+2025/12/22 21:57:27.336010 api_auth.go:60: [BOOT] available strategies: [pap]
+2025/12/22 21:57:27.336056 api_auth.go:65: [BOOT] load policy store
+{
+    "Policies": [
+        {
+            "name": "default",
+            "allowed": [
+                "pap"
+            ],
+            "default_strategy": "pap",
+            "session_timeout": 3600,
+            "idle_timeout": 300,
+            "redirect_url": "https://www.bing.com"
+        }
+    ]
+}
+2025/12/22 21:57:27.336601 api_auth.go:76: [BOOT] init PolicyEngine
+2025/12/22 21:57:27.336613 api_auth.go:87: [BOOT] use RedisFeatureFlag
+2025/12/22 21:57:27.336622 api_auth.go:97: [BOOT] init Auth Factory
+2025/12/22 21:57:27.336630 api_auth.go:104: [BOOT] PortalServer ready
+2025/12/22 21:57:27.336655 main.go:38: 接入设备 (NAS) 模拟器运行在 :9000...
+2025/12/22 21:57:27.336787 main.go:39: 认证重定向功能已开启 -> 目标: http://172.19.0.1:8080/
+2025/12/22 22:01:15.203816 api_auth.go:141: [PORTAL_AUTH] decode request
+2025/12/22 22:01:15.203912 api_auth.go:165: [PORTAL_AUTH] request user=testuser ip=192.168.100.1:7491 auth_type= nas_id=
+2025/12/22 22:01:15.204668 policy.go:35: [POLICY] user=testuser source=default policy=default
+2025/12/22 22:01:15.204960 api_auth.go:181: [AUTH][DENY] user=testuser err=该认证方式尚未开放
+2025/12/22 22:04:05.418085 api_auth.go:141: [PORTAL_AUTH] decode request
+2025/12/22 22:04:05.418148 api_auth.go:165: [PORTAL_AUTH] request user=testuser ip=192.168.100.1:7491 auth_type= nas_id=
+2025/12/22 22:04:05.418570 policy.go:35: [POLICY] user=testuser source=default policy=default
+2025/12/22 22:04:05.418929 api_auth.go:181: [AUTH][DENY] user=testuser err=该认证方式尚未开放
+2025/12/22 22:34:45.556615 api_auth.go:141: [PORTAL_AUTH] decode request
+2025/12/22 22:34:45.556743 api_auth.go:165: [PORTAL_AUTH] request user=testuser ip=192.168.100.1:2676 auth_type= nas_id=
+2025/12/22 22:34:45.557300 policy.go:35: [POLICY] user=testuser source=default policy=default
+2025/12/22 22:34:45.557769 factory.go:130: [FACTORY] rc.Username="testuser" rc.Password.len=8
+2025/12/22 22:34:45.557948 api_auth.go:189: [AUTH] user=testuser strategy=pap policy=default
+[Switching to Thread 0x7fffb0abb700 (LWP 435768)]
+
+Thread 3 "access_device" hit Breakpoint 2, access_device/app.(*RadiusPAPAuth).RadiusPAP (
+    a=0xad2f00 <runtime.zerobase>, ctx=..., username=..., password=..., ~r0=<optimized out>,
+    ~r0=<optimized out>, ~r1=<optimized out>, ~r1=<optimized out>, ~r2=<optimized out>, ~r2=<optimized out>,
+    ~r3=..., ~r3=...)
+    at /home/kay/codebase/enterprise_ap_impl/control-plane/captive-portal/access_device/app/radius.go:28
+28      func (a *RadiusPAPAuth) RadiusPAP(ctx context.Context, username, password string) (bool, map[string]string, int64, error) {
+(gdb) bt
+#0  access_device/app.(*RadiusPAPAuth).RadiusPAP (a=0xad2f00 <runtime.zerobase>, ctx=..., username=...,
+    password=..., ~r0=<optimized out>, ~r0=<optimized out>, ~r1=<optimized out>, ~r1=<optimized out>,
+    ~r2=<optimized out>, ~r2=<optimized out>, ~r3=..., ~r3=...)
+    at /home/kay/codebase/enterprise_ap_impl/control-plane/captive-portal/access_device/app/radius.go:28
+#1  0x00000000006b0b1f in access_device/auth/plugins/pap.(*Strategy).Authenticate (p=0xc0001806f0, ctx=...,
+    ~r0=<optimized out>, ~r1=<optimized out>, ~r2=...)
+    at /home/kay/codebase/enterprise_ap_impl/control-plane/captive-portal/access_device/auth/plugins/pap/pap.go:33
+#2  0x00000000006add29 in access_device/app.(*PortalServer).PortalAuthHandler (p=0xc00009e560, w=...,
+    r=0xc000186280)
+    at /home/kay/codebase/enterprise_ap_impl/control-plane/captive-portal/access_device/app/api_auth.go:197
+#3  0x00000000006b1396 in access_device/app.(*PortalServer).PortalAuthHandler-fm (w=..., r=<optimized out>)
+    at <autogenerated>:1
+#4  0x00000000006165c9 in net/http.HandlerFunc.ServeHTTP (f=<optimized out>, w=..., r=0xc0000121b0)
+    at /usr/local/go/src/net/http/server.go:2294
+#5  0x0000000000618464 in net/http.(*ServeMux).ServeHTTP (mux=<optimized out>, w=..., r=0xc000186280)
+    at /usr/local/go/src/net/http/server.go:2822
+#6  0x000000000061f4ae in net/http.serverHandler.ServeHTTP (sh=..., rw=..., req=0xc0000121b0)
+    at /usr/local/go/src/net/http/server.go:3301
+#7  0x0000000000614d25 in net/http.(*conn).serve (c=0xc000182120, ctx=...)
+    at /usr/local/go/src/net/http/server.go:2102
+#8  0x0000000000619bc8 in net/http.(*Server).Serve.gowrap3 () at /usr/local/go/src/net/http/server.go:3454
+#9  0x0000000000478141 in runtime.goexit () at /usr/local/go/src/runtime/asm_amd64.s:1700
+#10 0x0000000000000000 in ?? ()
+(gdb) c
+Continuing.
+2025/12/22 22:34:58.809714 radius.go:40: [RADIUS] request start user=testuser server=172.19.0.4:1812
+2025/12/22 22:34:58.809757 radius.go:52: [RADIUS][TIMEOUT] user=testuser server=172.19.0.4:1812 elapsed=7.212µs
+2025/12/22 22:34:58.810016 api_auth.go:203: [AUTH][ERROR] user=testuser err=context deadline exceeded
+^C
+Thread 1 "access_device" received signal SIGINT, Interrupt.
+[Switching to Thread 0x7ffff7d7d740 (LWP 435763)]
+internal/runtime/syscall.Syscall6 () at /usr/local/go/src/internal/runtime/syscall/asm_linux_amd64.s:36
+36              CMPQ    AX, $0xfffffffffffff001
+(gdb) dis
+(gdb) c
+Continuing.
+2025/12/22 22:36:48.811838 api_auth.go:141: [PORTAL_AUTH] decode request
+2025/12/22 22:36:48.811872 api_auth.go:165: [PORTAL_AUTH] request user=testuser ip=192.168.100.1:2676 auth_type= nas_id=
+2025/12/22 22:36:48.812078 policy.go:35: [POLICY] user=testuser source=default policy=default
+2025/12/22 22:36:48.812167 factory.go:130: [FACTORY] rc.Username="testuser" rc.Password.len=8
+2025/12/22 22:36:48.812183 api_auth.go:189: [AUTH] user=testuser strategy=pap policy=default
+2025/12/22 22:36:48.812193 radius.go:40: [RADIUS] request start user=testuser server=172.19.0.4:1812
+2025/12/22 22:36:48.850700 radius.go:64: [RADIUS][ACCEPT] user=testuser server=172.19.0.4:1812 elapsed=38.482735ms
+2025/12/22 22:36:48.850737 api_auth.go:199: [AUTH] extra result: &{Username:testuser Password: Token: Phone: Code: AuthMethod:pap Policy: SessionTimeout:3600 ReplyAttrs:map[Session-Timeout:3600]}
+2025/12/22 22:36:48.851177 session_manager.go:84: [SESSION] save user=testuser ip=192.168.100.1:2676 ttl=1h0m0s policy=default strategy=pap
+2025/12/22 22:36:48.851252 api_auth.go:241: [SESSION] create user=testuser policy=default strategy=pap ttl=3600
+2025/12/22 22:36:48.851296 api_auth.go:275: [AUTH SUCCESS] user=testuser redirect=https://www.bing.com (req= policy=https://www.bing.com default=)
+2025/12/22 22:36:48.851308 api_auth.go:294: [AUTH SUCCESS] User: testuser | Policy: default | Strategy: pap | RedirectURL: https://www.bing.com
