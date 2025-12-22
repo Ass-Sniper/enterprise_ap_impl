@@ -1,0 +1,8 @@
+policies:
+  - name: default
+    allowed: 
+      - "pap"
+    defaultStrategy: "pap"
+    sessionTimeout: 3600
+    idleTimeout: 300
+    redirectURL: "http://example.com"

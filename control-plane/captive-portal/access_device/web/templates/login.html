@@ -1,0 +1,41 @@
+{{ define "content" }}
+<h1>网络认证登录</h1>
+
+{{ if .Error }}
+<div class="portal-error">
+  {{ .Error }}
+</div>
+{{ end }}
+
+<form method="POST" action="/portal_auth">
+  <input type="hidden" name="auth_type" value="pap"/>
+
+  <div class="portal-field">
+    <input
+      name="username"
+      placeholder="用户名"
+      value="{{ .Username }}"
+      autocomplete="username"
+      required
+    />
+  </div>
+
+  <div class="portal-field">
+    <input
+      type="password"
+      name="password"
+      placeholder="密码"
+      autocomplete="current-password"
+      required
+    />
+  </div>
+
+  <button class="portal-button" type="submit">
+    登录
+  </button>
+</form>
+
+<div class="portal-footer">
+  © Portal Access System
+</div>
+{{ end }}

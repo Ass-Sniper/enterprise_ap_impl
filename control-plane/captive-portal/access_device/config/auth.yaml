@@ -1,0 +1,8 @@
+auth:
+  strategies:
+    pap:
+      enabled: true
+    token:
+      enabled: true
+    sms:
+      enabled: false

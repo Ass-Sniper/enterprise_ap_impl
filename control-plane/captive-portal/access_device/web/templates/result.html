@@ -1,0 +1,14 @@
+{{ define "content" }}
+<h1 class="{{ if .Success }}ok{{ else }}err{{ end }}">
+  {{ if .Success }}认证成功{{ else }}认证失败{{ end }}
+</h1>
+
+<p>{{ .Message }}</p>
+
+{{ if .RedirectURL }}
+  <p>将在 {{ .RedirectDelay }} 秒后跳转…</p>
+  <a class="button" href="{{ .RedirectURL }}">立即跳转</a>
+{{ else }}
+  <a class="button" href="{{ .RetryURL }}">返回登录</a>
+{{ end }}
+{{ end }}
