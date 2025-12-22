@@ -3,7 +3,7 @@
 # ============================================================
 
 COMPOSE := docker compose
-DOCKER_CLEAN_SCRIPT := ./scripts/docker-clean.sh
+DOCKER_CLEAN_SCRIPT := scripts/docker-layer-clean.sh
 
 .DEFAULT_GOAL := help
 
@@ -56,7 +56,9 @@ ps:
 	$(COMPOSE) ps
 
 docker-clean:
-	$(OCKER_CLEAN_SCRIPT)
+	@echo "Running docker cleanup script..."
+	@chmod +x $(DOCKER_CLEAN_SCRIPT)
+	@/bin/sh $(DOCKER_CLEAN_SCRIPT)
 
 # ------------------------------------------------------------
 # Per-service lifecycle
