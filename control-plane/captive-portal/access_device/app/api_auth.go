@@ -170,6 +170,7 @@ func (p *PortalServer) PortalAuthHandler(w http.ResponseWriter, r *http.Request)
 	// 初始 hint
 	hint := &auth.Result{
 		Username: username,
+		Password: req.Password,
 	}
 
 	// ============================
@@ -245,16 +246,54 @@ func (p *PortalServer) PortalAuthHandler(w http.ResponseWriter, r *http.Request)
 	// ============================
 	// Success
 	// ============================
+	// ============================
+	// Resolve Redirect URL（认证成功后的跳转地址）
+	//
+	// 优先级说明：
+	// 1. 请求显式指定（Portal UI 传入，最高优先级）
+	// 2. 策略配置指定（policy.yaml 中的 redirectURL）
+	// 3. 系统默认兜底（PortalServer.DefaultRedirectURL）
+	//
+	// 设计原则：
+	// - UI 可以临时覆盖跳转行为
+	// - 业务策略可以统一控制落地页
+	// - 系统必须始终有安全兜底
+	// ============================
 	redirectURL := req.RedirectURL
+
+	// a 若请求未指定跳转地址，则尝试使用策略中配置的 redirectURL
+	if redirectURL == "" && policy != nil {
+		redirectURL = policy.RedirectURL
+	}
+
+	// b 若策略也未指定，则使用系统级默认跳转地址
 	if redirectURL == "" {
 		redirectURL = p.DefaultRedirectURL
 	}
 
-	WriteJSON(w, AuthResponse{
+	// c 记录最终跳转决策，便于排查策略 / UI / 默认配置问题
+	log.Printf(
+		"[AUTH SUCCESS] user=%s redirect=%s (req=%s policy=%s default=%s)",
+		username,
+		redirectURL,
+		req.RedirectURL,
+		policy.RedirectURL,
+		p.DefaultRedirectURL,
+	)
+
+	// 构造响应
+	resp := AuthResponse{
 		Success:     true,
 		Message:     "ok",
 		RedirectURL: redirectURL,
 		Policy:      policy.Name,
 		Strategy:    strategy.Name(),
-	})
+	}
+
+	// 打印日志：包含用户、策略信息
+	log.Printf("[AUTH SUCCESS] User: %s | Policy: %s | Strategy: %s | RedirectURL: %s",
+		username, resp.Policy, resp.Strategy, resp.RedirectURL)
+
+	// 发送响应
+	WriteJSON(w, resp)
 }

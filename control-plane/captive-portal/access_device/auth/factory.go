@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 )
 
@@ -109,14 +110,28 @@ func (f *Factory) SelectAndBuild(
 	// ================================
 	reqCtx := RequestContext{
 		Request:   r,
-		Username:  r.FormValue("username"),
-		Password:  r.FormValue("password"),
-		Token:     r.FormValue("token"),
-		Phone:     r.FormValue("phone"),
-		Code:      r.FormValue("code"),
+		Username:  "",
+		Password:  "",
+		Token:     "",
+		Phone:     "",
+		Code:      "",
 		ClientIP:  r.RemoteAddr,
 		UserAgent: r.UserAgent(),
 	}
+
+	if hint != nil {
+		reqCtx.Username = hint.Username
+		reqCtx.Password = hint.Password
+		reqCtx.Token = hint.Token
+		reqCtx.Phone = hint.Phone
+		reqCtx.Code = hint.Code
+	}
+
+	log.Printf(
+		"[FACTORY] rc.Username=%q rc.Password.len=%d",
+		reqCtx.Username,
+		len(reqCtx.Password),
+	)
 
 	st, err := f.store.Build(chosen, reqCtx)
 	if err != nil {
