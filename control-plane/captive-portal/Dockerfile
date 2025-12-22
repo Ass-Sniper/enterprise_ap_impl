@@ -106,9 +106,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 # 运行时最小依赖（APT cache 加速）
 # ------------------------------------------------------------
 RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
     apt-get update \
  && apt-get install -y --no-install-recommends \
-        ca-certificates \
+    ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
