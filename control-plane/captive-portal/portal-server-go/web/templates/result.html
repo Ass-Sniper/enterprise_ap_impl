@@ -3,24 +3,128 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8"/>
-  <title>{{ .Title }}</title>
+  <title>{{ if .Success }}认证成功{{ else }}认证失败{{ end }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
 
-  {{ if .RedirectURL }}
-  <meta http-equiv="refresh" content="{{ .RedirectDelay }};url={{ .RedirectURL }}">
+  {{ if .Success }}
+  <meta http-equiv="refresh" content="3;url={{ .RedirectURL }}">
   {{ end }}
+
+  <style>
+    :root {
+      --success-color: #10b981;
+      --error-color: #ef4444;
+      --text-main: #1f2937;
+      --text-muted: #6b7280;
+    }
+
+    body {
+      background: linear-gradient(135deg, #e0e7ff 0%, #f3f4f6 100%);
+      font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+    }
+
+    .card {
+      background: white;
+      padding: 2.5rem 2rem;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 360px;
+      text-align: center;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+      animation: slideUp 0.5s ease-out;
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .icon-wrapper {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+    }
+
+    .success-bg { background: #ecfdf5; color: var(--success-color); }
+    .error-bg { background: #fef2f2; color: var(--error-color); }
+
+    h2 { margin: 0 0 0.5rem; font-size: 1.5rem; color: var(--text-main); }
+    p { margin: 0 0 1.5rem; color: var(--text-muted); line-height: 1.5; }
+
+    .btn {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: #4f46e5;
+      color: white;
+    }
+
+    .btn-primary:hover { background: #4338ca; }
+
+    /* 成功页面的进度条 */
+    .progress-bar {
+      height: 4px;
+      background: #e5e7eb;
+      border-radius: 2px;
+      margin-top: 2rem;
+      overflow: hidden;
+    }
+    .progress-inner {
+      height: 100%;
+      background: var(--success-color);
+      width: 0%;
+      {{ if .Success }} animation: progress 3s linear forwards; {{ end }}
+    }
+
+    @keyframes progress {
+      from { width: 0%; }
+      to { width: 100%; }
+    }
+
+    svg { width: 40px; height: 40px; fill: currentColor; }
+  </style>
 </head>
+
 <body>
-  <h1>
-    {{ if .Success }}认证成功{{ else }}认证失败{{ end }}
-  </h1>
+  <div class="card">
+    {{ if .Success }}
+      <div class="icon-wrapper success-bg">
+        <svg viewBox="0 0 20 20">
+          <path d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"/>
+        </svg>
+      </div>
+      <h2 class="success">认证成功</h2>
+      <p>您的身份已确认，正在为您跳转至目标页面...</p>
+      
+      <div class="progress-bar"><div class="progress-inner"></div></div>
+      <p style="margin-top:1rem;"><small><a href="{{ .RedirectURL }}" style="color: #6366f1;">手动点击跳转</a></small></p>
 
-  <p>{{ .Message }}</p>
-
-  {{ if .RedirectURL }}
-    <a href="{{ .RedirectURL }}">立即跳转</a>
-  {{ else }}
-    <a href="/">返回登录</a>
-  {{ end }}
+    {{ else }}
+      <div class="icon-wrapper error-bg">
+        <svg viewBox="0 0 20 20">
+          <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"/>
+        </svg>
+      </div>
+      <h2 class="error">认证失败</h2>
+      <p>{{ .Message }}</p>
+      <a href="/" class="btn btn-primary">返回重试</a>
+    {{ end }}
+  </div>
 </body>
 </html>
 {{ end }}
