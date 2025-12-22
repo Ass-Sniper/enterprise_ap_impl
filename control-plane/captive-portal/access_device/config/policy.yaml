@@ -1,8 +1,9 @@
 policies:
   - name: default
+    # defaultStrategy 优先级高于allowed
+    defaultStrategy: "pap"
     allowed: 
       - "pap"
-    defaultStrategy: "pap"
     sessionTimeout: 3600
     idleTimeout: 300
     redirectURL: "https://www.bing.com"
