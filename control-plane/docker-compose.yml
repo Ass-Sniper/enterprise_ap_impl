@@ -6,13 +6,24 @@ services:
   # ==================================================
 
   redis:
-    image: redis:7-alpine
+    build: 
+      context: ./redis
+      dockerfile: Dockerfile      
     container_name: cp-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
+    volumes:
+      # 挂载初始化脚本目录（供 entrypoint.sh 执行）
+      - ./redis/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
     networks:
       - control-plane-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s      
 
   mysql:
     image: mysql:8.0
