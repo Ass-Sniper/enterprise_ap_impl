@@ -502,6 +502,7 @@ fi
 
 # Hook PREROUTING -> CHAIN_DNS (LAN only)
 if ! iptables -t nat -C PREROUTING -j "$CHAIN_DNS" >/dev/null 2>&1; then
+  # Insert the DNS chain as the first PREROUTING rule so DNS packets are processed before other NAT rules
   iptables -t nat -I PREROUTING 1 -j "$CHAIN_DNS"
   log "event=chain_hooked table=nat hook=PREROUTING chain=${CHAIN_DNS} in=${LAN_IF}"
 fi
