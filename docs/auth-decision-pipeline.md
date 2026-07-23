@@ -11,20 +11,20 @@
 flowchart TD
     A[Portal UI 提交认证请求] --> B[Access Device / NAC 接收请求]
 
-    B --> C[解析 AuthRequest<br/>username / password / token / user_ip]
+    B --> C[解析 AuthRequest<br>username / password / token / user_ip]
 
-    C --> D{FeatureFlag<br/>该认证方式是否开放?}
+    C --> D{FeatureFlag<br>该认证方式是否开放?}
 
-    D -- 否 --> D1[拒绝认证<br/>err=该认证方式尚未开放]
+    D -- 否 --> D1[拒绝认证<br>err=该认证方式尚未开放]
     D1 --> Z[返回 Portal UI]
 
-    D -- 是 --> E{Policy Override<br/>是否存在用户策略覆盖?}
+    D -- 是 --> E{Policy Override<br>是否存在用户策略覆盖?}
 
-    E -- 是 --> E1[使用 policy:user:*<br/>标记 Source=override]
-    E -- 否 --> F{RADIUS Reply Hint<br/>是否指定策略?}
+    E -- 是 --> E1[使用 policy_user_*<br>Source=override]
+    E -- 否 --> F{RADIUS Reply Hint<br>是否指定策略?}
 
-    F -- 是 --> F1[使用 RADIUS Hint 策略<br/>Source=radius]
-    F -- 否 --> G[使用 policy.yaml 默认策略<br/>Source=default]
+    F -- 是 --> F1[使用 RADIUS Hint 策略<br>Source=radius]
+    F -- 否 --> G[使用 policy.yaml 默认策略<br>Source=default]
 
     E1 --> H
     F1 --> H
@@ -32,23 +32,23 @@ flowchart TD
 
     H{Policy 是否允许该认证方式?}
 
-    H -- 否 --> H1[拒绝认证<br/>err=策略不允许]
+    H -- 否 --> H1[拒绝认证<br>err=策略不允许]
     H1 --> Z
 
-    H -- 是 --> I[构建 Strategy<br/>pap / sms / token]
+    H -- 是 --> I[构建 Strategy<br>pap / sms / token]
 
-    I --> J[执行 Authenticate<br/>RADIUS / Backend]
+    I --> J[执行 Authenticate<br>RADIUS / Backend]
 
-    J -- 失败 --> J1[认证失败<br/>REJECT / ERROR]
+    J -- 失败 --> J1[认证失败<br>REJECT / ERROR]
     J1 --> Z
 
-    J -- 成功 --> K[创建 Session<br/>TTL / Policy / Strategy]
+    J -- 成功 --> K[创建 Session<br>TTL / Policy / Strategy]
 
-    K --> L[决策 RedirectURL<br/>req → policy → default]
+    K --> L[决策 RedirectURL<br>req -> policy -> default]
 
-    L --> M[返回 AuthResponse<br/>success=true]
+    L --> M[返回 AuthResponse<br>success=true]
 
-    M --> Z[Portal UI 展示结果/跳转]
+    M --> Z[Portal UI 展示结果<br>跳转]
 ```
 
 ---
