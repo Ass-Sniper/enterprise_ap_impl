@@ -1,5 +1,5 @@
 
-# FeatureFlag 与 用户策略覆盖（Policy Override）的实际意义
+# 特性/功能开关（FeatureFlag ）与 用户策略覆盖（Policy Override）的实际意义
 
 > 本文档用于说明在 Portal / NAC 系统中
 > **FeatureFlag** 与 **用户策略覆盖（policy:user:*）**

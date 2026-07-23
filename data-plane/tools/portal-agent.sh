@@ -67,11 +67,52 @@ if [ "${1:-}" = "--check" ]; then
   fi
 fi
 
-# Write env file atomically
+# Atomically write the runtime environment file.
+#
+# Usage:
+#   write_env_atomic <<EOF
+#   KEY1=value1
+#   KEY2=value2
+#   EOF
+#
+# Implementation:
+#   1. Write the input to a temporary file.
+#   2. After the write completes, atomically replace the target file
+#      using `mv` (rename).
+#   3. This ensures that other processes will always see either the
+#      previous file or the fully written new file, never a partially
+#      written file.
 write_env_atomic() {
+  # Temporary file name. Use the current shell PID ($$) to avoid
+  # collisions between concurrent processes.
   tmp="${RUNTIME_ENV}.tmp.$$"
+
+  # Restrict permissions on newly created files to 0600
+  # (read/write for the current user only) to protect sensitive
+  # information such as passwords and tokens.
   umask 077
+
+  # Read the content from standard input and write it to the
+  # temporary file.
+  #
+  # Example:
+  #   write_env_atomic <<EOF
+  #   PORT=8080
+  #   TOKEN=xxxx
+  #   EOF
   cat >"$tmp"
+
+  # Atomically replace the target file.
+  #
+  # On the same filesystem, `mv` uses rename(2), which is guaranteed
+  # by POSIX to be atomic. Readers will observe either:
+  #   - the previous file, or
+  #   - the new file,
+  # but never a partially written file.
+  #
+  # Note: The temporary file and the target file must reside on the
+  # same filesystem. Otherwise, `mv` falls back to copy-and-delete,
+  # which is not atomic.
   mv -f "$tmp" "$RUNTIME_ENV"
 }
 
