@@ -566,17 +566,28 @@ iptables -A "$CHAIN_FWD" -m set --match-set "$IPSET_BYPASS_IP" dst -j ACCEPT
 iptables -A "$CHAIN_FWD" -d "$PORTAL_IP" -j ACCEPT
 
 # ---------------------------------------------------------
-# HTTPS captive portal assist:
-# For unauthenticated clients, actively reject HTTPS (443)
-# to trigger OS captive-portal fallback to HTTP.
+# HTTPS access policy
+#
+# Allow HTTPS access to the portal/controller for user login.
+# Other HTTPS traffic is not redirected. Instead, unauthenticated
+# clients are guided to the portal through OS captive portal
+# detection (HTTP probe -> Portal redirect).
+#
+# This behavior is consistent with modern enterprise captive
+# portal implementations and avoids HTTPS interception.
 # ---------------------------------------------------------
+
+# Allow HTTPS access to the portal/controller
 iptables -A "$CHAIN_FWD" \
+  -d "$PORTAL_IP" \
   -p tcp --dport 443 \
-  -j REJECT --reject-with tcp-reset
-log "event=https_block_installed dport=443 action=tcp-reset"
+  -j ACCEPT
+log "event=https_portal_allowed dst=${PORTAL_IP}:443"
 
 # Block everything else
-iptables -A "$CHAIN_FWD" -j REJECT --reject-with icmp-port-unreachable
+iptables -A "$CHAIN_FWD" \
+  -j REJECT --reject-with icmp-port-unreachable
+log "event=forward_default_reject"
 
 log "event=init_done"
 exit 0
