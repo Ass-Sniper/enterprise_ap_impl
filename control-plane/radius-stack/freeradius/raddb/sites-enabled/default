@@ -151,7 +151,8 @@ listen {
 	#  See clients.conf for the configuration of "per_socket_clients".
 	#
 #	clients = per_socket_clients
-	clients = sql_clients
+	# SQL 动态 NAS 由 sql 模块加入全局 clients，无需命名组。
+#	clients = sql_clients
 
 	#
 	#  Set the default UDP receive buffer size.  In most cases,
@@ -228,7 +229,8 @@ listen {
 	type = acct
 #	interface = eth0
 #	clients = per_socket_clients
-	clients = sql_clients
+	# SQL 动态 NAS 由 sql 模块加入全局 clients，无需命名组。
+#	clients = sql_clients
 
 	limit {
 		#  The number of packets received can be rate limited via the
@@ -269,7 +271,7 @@ listen {
 	port = 0
 #	interface = eth0
 #	clients = per_socket_clients
-	clients = sql_clients
+	# clients = sql_clients  # SQL NAS clients are loaded globally
 	limit {
 	      max_connections = 16
 	      lifetime = 0
@@ -283,8 +285,7 @@ listen {
 	type = acct
 #	interface = eth0
 #	clients = per_socket_clients
-	clients = sql_clients
-
+	# clients = sql_clients  # SQL NAS clients are loaded globally
 	limit {
 #		max_pps = 0
 #		idle_timeout = 0
